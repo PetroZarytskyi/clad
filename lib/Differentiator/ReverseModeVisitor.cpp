@@ -1943,7 +1943,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       Expr* diff_dx = diff.getExpr_dx();
       if (isPointerOp)
         addToCurrentBlock(BuildOp(opCode, diff_dx), direction::forward);
-      if (UsefulToStoreGlobal(diff.getRevSweepAsExpr())) {
+      if (isTBR(E->getBeginLoc())) {
         auto op = opCode == UO_PostInc ? UO_PostDec : UO_PostInc;
         addToCurrentBlock(BuildOp(op, Clone(diff.getRevSweepAsExpr())),
                           direction::reverse);
@@ -1960,7 +1960,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       Expr* diff_dx = diff.getExpr_dx();
       if (isPointerOp)
         addToCurrentBlock(BuildOp(opCode, diff_dx), direction::forward);
-      if (UsefulToStoreGlobal(diff.getRevSweepAsExpr())) {
+      if (isTBR(E->getBeginLoc())) {
         auto op = opCode == UO_PreInc ? UO_PreDec : UO_PreInc;
         addToCurrentBlock(BuildOp(op, Clone(diff.getRevSweepAsExpr())),
                           direction::reverse);
@@ -2236,15 +2236,6 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       beginBlock(direction::reverse);
       Ldiff = Visit(L, dfdx());
       auto* Lblock = endBlock(direction::reverse);
-      llvm::SmallVector<Expr*, 4> ExprsToStore;
-      utils::GetInnermostReturnExpr(Ldiff.getExpr(), ExprsToStore);
-
-      // We need to store values of derivative pointer variables in forward pass
-      // and restore them in reverse pass.
-      if (isPointerOp) {
-        Expr* Edx = Ldiff.getExpr_dx();
-        ExprsToStore.push_back(Edx);
-      }
 
       if (L->HasSideEffects(m_Context)) {
         Expr* E = Ldiff.getExpr();
@@ -2269,8 +2260,16 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         Lblock_begin = std::next(Lblock_begin);
       }
 
-      for (auto& E : ExprsToStore) {
-        auto pushPop = StoreAndRestore(E);
+      // Store the value of the LHS of the assignment in the forward pass
+      // and restore it in the reverse pass
+      StmtDiff pushPop = StoreAndRestore(LCloned, /*prefix=*/"_t", /*loc=*/L->getBeginLoc());
+      addToCurrentBlock(pushPop.getExpr(), direction::forward);
+      addToCurrentBlock(pushPop.getExpr_dx(), direction::reverse);
+
+      // We need to store values of derivative pointer variables in forward pass
+      // and restore them in reverse pass.
+      if (isPointerOp) {
+        pushPop = StoreAndRestore(Ldiff.getExpr_dx());
         addToCurrentBlock(pushPop.getExpr(), direction::forward);
         addToCurrentBlock(pushPop.getExpr_dx(), direction::reverse);
       }
@@ -2604,8 +2603,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
                           initDiff.getForwSweepExpr_dx()));
       addToCurrentBlock(assignDerivativeE);
       if (isInsideLoop) {
-        StmtDiff pushPop =
-            StoreAndRestore(derivedVDE, /*prefix=*/"_t", /*force=*/true);
+        StmtDiff pushPop = StoreAndRestore(derivedVDE);
         addToCurrentBlock(pushPop.getExpr(), direction::forward);
         m_LoopBlock.back().push_back(pushPop.getExpr_dx());
       }
@@ -2759,8 +2757,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
             auto* declRef = BuildDeclRef(decl);
             auto* assignment = BuildOp(BO_Assign, declRef, decl->getInit());
             if (isInsideLoop) {
-              auto pushPop =
-                  StoreAndRestore(declRef, /*prefix=*/"_t", /*force=*/true);
+              auto pushPop = StoreAndRestore(declRef);
               if (pushPop.getExpr() != declRef)
                 addToCurrentBlock(pushPop.getExpr_dx(), direction::reverse);
               assignment = BuildOp(BO_Comma, pushPop.getExpr(), assignment);
@@ -2935,18 +2932,8 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     // current system that should have been decided by the parent expression.
     // FIXME: Here will be the entry point of the advanced activity analysis.
     if (isa<DeclRefExpr>(B) || isa<ArraySubscriptExpr>(B) ||
-        isa<MemberExpr>(B)) {
-      // If TBR analysis is off, assume E is useful to store.
-      if (!m_DiffReq.EnableTBRAnalysis)
-        return true;
-      // FIXME: currently, we allow all pointer operations to be stored.
-      // This is not correct, but we need to implement a more advanced analysis
-      // to determine which pointer operations are useful to store.
-      if (E->getType()->isPointerType())
-        return true;
-      auto found = m_ToBeRecorded.find(B->getBeginLoc());
-      return found != m_ToBeRecorded.end();
-    }
+        isa<MemberExpr>(B))
+      return true;
 
     // FIXME: Attach checkpointing.
     if (isa<CallExpr>(B))
@@ -3013,10 +3000,10 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
 
   StmtDiff ReverseModeVisitor::StoreAndRestore(clang::Expr* E,
                                                llvm::StringRef prefix,
-                                               bool force) {
+                                               SourceLocation loc) {
     auto Type = getNonConstType(E->getType(), m_Context, m_Sema);
 
-    if (!force && !UsefulToStoreGlobal(E))
+    if (!isTBR(loc))
       return {};
 
     if (isInsideLoop) {

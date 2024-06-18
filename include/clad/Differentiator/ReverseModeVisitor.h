@@ -220,6 +220,12 @@ namespace clad {
     /// This is the central point for checkpointing.
     bool ShouldRecompute(const clang::Expr* E);
 
+    bool isTBR(clang::SourceLocation loc) {
+      if (!m_DiffReq.EnableTBRAnalysis||!loc.isValid())
+        return true;
+      return m_ToBeRecorded.find(loc) != m_ToBeRecorded.end();
+    }
+
     /// Builds a variable declaration and stores it in the function
     /// global scope.
     ///
@@ -249,8 +255,7 @@ namespace clad {
     clang::Expr* GlobalStoreAndRef(clang::Expr* E,
                                    llvm::StringRef prefix = "_t",
                                    bool force = false);
-    StmtDiff StoreAndRestore(clang::Expr* E, llvm::StringRef prefix = "_t",
-                             bool force = false);
+    StmtDiff StoreAndRestore(clang::Expr* E, llvm::StringRef prefix = "_t", clang::SourceLocation loc = noLoc);
 
     //// A type returned by DelayedGlobalStoreAndRef
     /// .Result is a reference to the created (yet uninitialized) global
