@@ -15,7 +15,7 @@ double runningSum(float* f, int n) {
   return sum;
 }
 
-//CHECK: void runningSum_grad(float *f, int n, float *_d_f, int *_d_n, double *_final_error) {
+//CHECK: void runningSum_pullback(float *f, int n, double _d_y, float *_d_f, int *_d_n, double *_final_error) {
 //CHECK-NEXT:     double _d_sum = 0;
 //CHECK-NEXT:     unsigned {{int|long}} _t0;
 //CHECK-NEXT:     int _d_i = 0;
@@ -29,7 +29,7 @@ double runningSum(float* f, int n) {
 //CHECK-NEXT:         clad::push(_t1, sum);
 //CHECK-NEXT:         sum += f[i] + f[i - 1];
 //CHECK-NEXT:     }
-//CHECK-NEXT:     _d_sum += 1;
+//CHECK-NEXT:     _d_sum += _d_y;
 //CHECK-NEXT:     for (; _t0; _t0--) {
 //CHECK-NEXT:         i--;
 //CHECK-NEXT:         {
@@ -57,7 +57,7 @@ double mulSum(float* a, float* b, int n) {
   return sum;
 }
 
-//CHECK: void mulSum_grad(float *a, float *b, int n, float *_d_a, float *_d_b, int *_d_n, double *_final_error) {
+//CHECK: void mulSum_pullback(float *a, float *b, int n, double _d_y, float *_d_a, float *_d_b, int *_d_n, double *_final_error) {
 //CHECK-NEXT:     double _d_sum = 0;
 //CHECK-NEXT:     unsigned {{int|long}} _t0;
 //CHECK-NEXT:     int _d_i = 0;
@@ -80,7 +80,7 @@ double mulSum(float* a, float* b, int n) {
 //CHECK-NEXT:             sum += a[i] * b[j];
 //CHECK-NEXT:         }
 //CHECK-NEXT:     }
-//CHECK-NEXT:     _d_sum += 1;
+//CHECK-NEXT:     _d_sum += _d_y;
 //CHECK-NEXT:     for (; _t0; _t0--) {
 //CHECK-NEXT:         i--;
 //CHECK-NEXT:         {
@@ -118,7 +118,7 @@ double divSum(float* a, float* b, int n) {
   return sum;
 }
 
-//CHECK: void divSum_grad(float *a, float *b, int n, float *_d_a, float *_d_b, int *_d_n, double *_final_error) {
+//CHECK: void divSum_pullback(float *a, float *b, int n, double _d_y, float *_d_a, float *_d_b, int *_d_n, double *_final_error) {
 //CHECK-NEXT:     double _d_sum = 0;
 //CHECK-NEXT:     unsigned {{int|long}} _t0;
 //CHECK-NEXT:     int _d_i = 0;
@@ -133,7 +133,7 @@ double divSum(float* a, float* b, int n) {
 //CHECK-NEXT:         clad::push(_t1, sum);
 //CHECK-NEXT:         sum += a[i] / b[i];
 //CHECK-NEXT:     }
-//CHECK-NEXT:     _d_sum += 1;
+//CHECK-NEXT:     _d_sum += _d_y;
 //CHECK-NEXT:     for (; _t0; _t0--) {
 //CHECK-NEXT:         i--;
 //CHECK-NEXT:         {

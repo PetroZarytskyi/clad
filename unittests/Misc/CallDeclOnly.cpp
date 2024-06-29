@@ -70,7 +70,8 @@ namespace clad {
 namespace custom_derivatives {
 float custom_fn_darg0(float x, float y);
 
-void custom_fn_darg0_grad(float x, float y, float* d_x, float* d_y);
+void custom_fn_darg0_pullback(float x, float y, float _d_y0, float* d_x,
+                              float* d_y);
 
 float custom_fn_darg1(float x, float y) { return exp(y); }
 } // namespace custom_derivatives
