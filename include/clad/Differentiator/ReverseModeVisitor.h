@@ -68,12 +68,35 @@ namespace clad {
     // 'MultiplexExternalRMVSource.h' file
     MultiplexExternalRMVSource* m_ExternalSource = nullptr;
     clang::Expr* m_Pullback = nullptr;
-    const char* funcPostfix() const {
-      if (m_DiffReq.Mode == DiffMode::jacobian)
-        return "_jac";
-      if (m_DiffReq.use_enzyme)
-        return "_grad_enzyme";
-      return "_grad";
+
+    std::string diffParamsPostfix(DiffRequest request) const {
+      std::string postfix = "";
+      const DiffInputVarsInfo& DVI = request.DVI;
+      std::size_t numParams = request->getNumParams();
+      // If Jacobian is asked, the last parameter is the result parameter
+      // and should be ignored
+      if (request.Mode == DiffMode::jacobian)
+        numParams -= 1;
+      // To be consistent with older tests, nothing is appended to 'f_grad' if
+      // we differentiate w.r.t. all the parameters at once.
+      if (DVI.size() != numParams)
+        for (const auto& dParam : DVI) {
+          const clang::ValueDecl* arg = dParam.param;
+          const auto* begin = request->param_begin();
+          const auto* it = std::find(begin, begin + numParams, arg);
+          auto idx = std::distance(begin, it);
+          postfix += ('_' + std::to_string(idx));
+        }
+      return postfix;
+    }
+
+    std::string funcPostfix(DiffRequest request) const {
+      std::string postfix = "_pullback";
+      if (request.Mode == DiffMode::jacobian)
+        postfix = "_jac";
+      if (request.use_enzyme)
+        postfix = "_grad_enzyme";
+      return postfix + diffParamsPostfix(request);
     }
 
     /// Removes the local const qualifiers from a QualType and returns a new
