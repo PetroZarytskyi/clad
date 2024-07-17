@@ -7,6 +7,7 @@
 #include "clad/Differentiator/CladUtils.h"
 #include "clad/Differentiator/Compatibility.h"
 
+
 #include <map>
 #include <unordered_map>
 
@@ -26,109 +27,56 @@ class TBRAnalyzer : public clang::RecursiveASTVisitor<TBRAnalyzer> {
   /// ProfileID is the key type for ArrMap used to represent array indices
   /// and object fields.
   using ProfileID = clad_compat::FoldingSetNodeID;
+  using hash_code = clad_compat::hash_code;
+  using HashSequence = llvm::SmallVector<hash_code, 1>;
 
-  ProfileID getProfileID(const Expr* E) const {
+  ProfileID getProfileID(const IntegerLiteral* IL) const {
     ProfileID profID;
-    E->Profile(profID, m_Context, /* Canonical */ true);
+    IL->Profile(profID, m_Context, /* Canonical */ true);
     return profID;
   }
 
-  static ProfileID getProfileID(const FieldDecl* FD) {
+  static ProfileID getProfileID(const Decl* D) {
     ProfileID profID;
-    profID.AddPointer(FD);
+    profID.AddPointer(D);
     return profID;
   }
 
-  struct ProfileIDHash {
-    size_t operator()(const ProfileID& x) const { return x.ComputeHash(); }
-  };
 
-  struct VarData;
-  using ArrMap = std::unordered_map<const ProfileID, VarData, ProfileIDHash>;
-
-  // NOLINTBEGIN(cppcoreguidelines-pro-type-union-access)
-
-  /// Stores all the necessary information about one variable. Fundamental type
-  /// variables need only one bit. An object/array needs a separate VarData for
-  /// each field/element. Reference type variables store the clang::Expr* they
-  /// refer to. UNDEFINED is used whenever the type of a node cannot be
-  /// determined.
-  ///
-  /// FIXME: Pointers to objects are considered OBJ_TYPE for simplicity. This
-  /// approach might cause problems when the support for pointers is added.
-  ///
-  /// FIXME: Add support for references to call expression results.
-  /// 'double& x = f(b);' is not supported.
-  struct VarData {
-    enum VarDataType { UNDEFINED, FUND_TYPE, OBJ_TYPE, ARR_TYPE, REF_TYPE };
-    union VarDataValue {
-      bool m_FundData;
-      /// m_ArrData is stored as pointers for VarDataValue to take
-      /// less space.
-      /// Both arrays and and objects are modelled using m_ArrData;
-      std::unique_ptr<ArrMap> m_ArrData;
-      Expr* m_RefData;
-      VarDataValue() : m_ArrData(nullptr) {}
-      /// `= default` cannot be used here since
-      /// default destructor is implicitly deleted.
-      // NOLINTNEXTLINE(modernize-use-equals-default)
-      ~VarDataValue() {}
-    };
-    VarDataType m_Type = UNDEFINED;
-    VarDataValue m_Val;
-
-    VarData() = default;
-    VarData(const VarData& other) = delete;
-    VarData(VarData&& other) noexcept : m_Type(other.m_Type) {
-      *this = std::move(other);
+  void getProfileIDHash(const Expr* E, HashSequence& hashSequence) {
+    E = E->IgnoreImplicit();
+    if (const auto* DRE = dyn_cast<DeclRefExpr>(E)) {
+      hash_code hash = getProfileID(E->getDecl()).ComputeHash();
+      hashSequence.push_back(hash);
+    } else if (const auto* ME = dyn_cast<MemberExpr>(E)) {
+      getProfileIDHash(ME->getBase(), hashSequence);
+      const auto* FD = cast<clang::FieldDecl>(ME->getMemberDecl());
+      hash_code fieldHash = getProfileID(FD).ComputeHash();
+      hashSequence.push_back(fieldHash);
+    } else if (const auto* ASE = dyn_cast<ArraySubscriptExpr>(E)) {
+      getProfileIDHash(ASE->getBase(), hashSequence);
+      hash_code IndexHash = 0;
+      if (const auto* IL = dyn_cast<clang::IntegerLiteral>(ASE->getIdx()))
+        IndexHash = getProfileID(IL).ComputeHash();
+      hashSequence.push_back(IndexHash);
     }
-    VarData& operator=(const VarData& other) = delete;
-    VarData& operator=(VarData&& other) noexcept {
-      m_Type = other.m_Type;
-      if (m_Type == FUND_TYPE) {
-        m_Val.m_FundData = other.m_Val.m_FundData;
-      } else if (m_Type == OBJ_TYPE || m_Type == ARR_TYPE) {
-        m_Val.m_ArrData = std::move(other.m_Val.m_ArrData);
-        other.m_Val.m_ArrData = nullptr;
-      } else if (m_Type == REF_TYPE) {
-        m_Val.m_RefData = other.m_Val.m_RefData;
-      }
-      other.m_Type = UNDEFINED;
-      return *this;
-    }
+  }
 
-    /// Builds a VarData object (and its children) based on the provided type.
-    /// If `forceNonRefType` is true, the constructed VarData will not be of
-    /// reference type (it will store TBR information itself without referring
-    /// to other VarData's). This is necessary for reference-type parameters,
-    /// when the referenced expressions are out of the function's scope.
-    VarData(QualType QT, bool forceNonRefType = false);
-
-    /// Erases all children VarData's of this VarData.
-    ~VarData() {
-      if (m_Type == OBJ_TYPE || m_Type == ARR_TYPE)
-        m_Val.m_ArrData.reset();
-    }
-  };
-  // NOLINTEND(cppcoreguidelines-pro-type-union-access)
-
-  /// Recursively sets all the leaves' bools to isReq.
-  void setIsRequired(VarData& varData, bool isReq = true);
   /// Whenever an array element with a non-constant index is set to required
   /// this function is used to set to required all the array elements that
   /// could match that element (e.g. set 'a[1].y' and 'a[6].y' to required
   /// when 'a[k].y' is set to required). Takes unwrapped sequence of
   /// indices/members of the expression being overlaid and the index of of the
   /// current index/member.
-  void overlay(VarData& targetData, llvm::SmallVector<ProfileID, 2>& IDSequence,
-               size_t i);
+  // void overlay(VarData& targetData, llvm::SmallVector<ProfileID, 2>& IDSequence,
+  //              size_t i);
   /// Returns true if there is at least one required to store node among
   /// child nodes.
-  bool findReq(const VarData& varData);
+  bool findReq(const HashSequence& varData);
   /// Used to merge together VarData for one variable from two branches
   /// (e.g. after an if-else statements). Look at the Control Flow section for
   /// more information.
-  void merge(VarData& targetData, VarData& mergeData);
+  void merge(TBRStatus& targetData, const TBRStatus& mergeData);
   /// Used to recursively copy VarData when separating into different branches
   /// (e.g. when entering an if-else statements). Look at the Control Flow
   /// section for more information.
@@ -136,18 +84,6 @@ class TBRAnalyzer : public clang::RecursiveASTVisitor<TBRAnalyzer> {
 
   clang::CFGBlock* getCFGBlockByID(unsigned ID);
 
-  /// Given a MemberExpr*/ArraySubscriptExpr* return a pointer to its
-  /// corresponding VarData. If the given element of an array does not have a
-  /// VarData yet it will be added automatically. If addNonConstIdx==false this
-  /// will return the last VarData before the non-constant index
-  /// (e.g. for 'x.arr[k+1].y' the return value will be the VarData of x.arr).
-  /// Otherwise, non-const indices will be represented as index -1.
-  VarData* getMemberVarData(const clang::MemberExpr* ME,
-                            bool addNonConstIdx = false);
-  VarData* getArrSubVarData(const clang::ArraySubscriptExpr* ASE,
-                            bool addNonConstIdx = false);
-  /// Given an Expr* returns its corresponding VarData.
-  VarData* getExprVarData(const clang::Expr* E, bool addNonConstIdx = false);
 
   /// Whenever an array element with a non-constant index is set to required
   /// this function is used to set to required all the array elements that
@@ -155,7 +91,13 @@ class TBRAnalyzer : public clang::RecursiveASTVisitor<TBRAnalyzer> {
   /// 'a[k].y' is set to required). Unwraps the a given expression into a
   /// sequence of indices/members of the expression being overlaid and calls
   /// VarData::overlay() recursively.
-  void overlay(const clang::Expr* E);
+  // void overlay(const clang::Expr* E);
+
+  enum TBRStatus {
+    USEFUL,
+    USELESS,
+    UNDEFINED
+  };
 
   /// Used to store all the necessary information about variables at a
   /// particular moment.
@@ -166,7 +108,7 @@ class TBRAnalyzer : public clang::RecursiveASTVisitor<TBRAnalyzer> {
   /// Note: 'this' pointer does not have a declaration so nullptr is used as
   /// its key instead.
   struct VarsData {
-    std::unordered_map<const clang::VarDecl*, VarData> m_Data;
+    std::unordered_map<const HashSequence, TBRStatus> m_Data;
     VarsData* m_Prev = nullptr;
 
     VarsData() = default;
@@ -184,10 +126,10 @@ class TBRAnalyzer : public clang::RecursiveASTVisitor<TBRAnalyzer> {
     }
 
     using iterator =
-        std::unordered_map<const clang::VarDecl*, VarData>::iterator;
+        std::unordered_map<const HashSequence, TBRStatus>::iterator;
     iterator begin() { return m_Data.begin(); }
     iterator end() { return m_Data.end(); }
-    VarData& operator[](const clang::VarDecl* VD) { return m_Data[VD]; }
+    TBRStatus& operator[](const clang::VarDecl* VD) { return m_Data[VD]; }
     iterator find(const clang::VarDecl* VD) { return m_Data.find(VD); }
     void clear() { m_Data.clear(); }
   };
@@ -196,11 +138,7 @@ class TBRAnalyzer : public clang::RecursiveASTVisitor<TBRAnalyzer> {
   /// 'limit' into one map ('limit' VarsData is not included).
   /// If 'limit' is 'nullptr', data is collected starting with
   /// the entry CFG block.
-  /// Note: the returned VarsData contains original data from
-  /// the predecessors (NOT copies). It should not be modified.
-  std::unordered_map<
-      const clang::VarDecl*,
-      VarData*> static collectDataFromPredecessors(VarsData* varsData,
+  VarsData static collectDataFromPredecessors(VarsData* varsData,
                                                    VarsData* limit = nullptr);
 
   /// Finds the lowest common ancestor of two VarsData
@@ -248,16 +186,9 @@ class TBRAnalyzer : public clang::RecursiveASTVisitor<TBRAnalyzer> {
   /// The set of IDs of the CFG blocks that should be visited.
   std::set<unsigned> m_CFGQueue;
 
-  /// Set to true when a non-const index is found while analysing an
-  /// array subscript expression.
-  bool m_NonConstIndexFound = false;
-
   //// Setters
   /// Creates VarData for a new VarDecl*.
-  void addVar(const clang::VarDecl* VD, bool forceNonRefType = false);
-  /// Makes a copy of the VarData corresponding to VD
-  /// to the current block from the lowest predecessor
-  /// where VD is present.
+  void addVar(const clang::VarDecl* VD);
   void copyVarToCurBlock(const clang::VarDecl* VD);
   /// Marks the SourceLocation of E if it is required to store.
   /// E could be DeclRefExpr*, ArraySubscriptExpr* or MemberExpr*.
