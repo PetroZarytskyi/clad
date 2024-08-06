@@ -2039,21 +2039,8 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
                        e = CE->getNumArgs();
            i != e; ++i) {
         const Expr* arg = CE->getArg(i);
-        const ParmVarDecl* PVD =
-            FD->getParamDecl(i - static_cast<unsigned long>(isCXXOperatorCall));
         StmtDiff argDiff = Visit(arg);
-        if ((argDiff.getExpr_dx() != nullptr) &&
-            PVD->getType()->isReferenceType()) {
-          Expr* derivedArg = argDiff.getExpr_dx();
-          // FIXME: We may need this if-block once we support pointers, and
-          // passing pointers-by-reference if
-          // (isCladArrayType(derivedArg->getType()))
-          //   CallArgs.push_back(derivedArg);
-          // else
-          CallArgs.push_back(
-              BuildOp(UnaryOperatorKind::UO_AddrOf, derivedArg, Loc));
-        } else
-          CallArgs.push_back(m_Sema.ActOnCXXNullPtrLiteral(Loc).get());
+        CallArgs.push_back(argDiff.getExpr_dx());
       }
       if (baseDiff.getExpr()) {
         Expr* baseE = baseDiff.getExpr();
