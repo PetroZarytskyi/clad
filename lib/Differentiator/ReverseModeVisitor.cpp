@@ -1306,7 +1306,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     const Expr* value = RS->getRetValue();
     QualType type = value->getType();
     auto* dfdf = m_Pullback;
-    if (isa<FloatingLiteral>(dfdf) || isa<IntegerLiteral>(dfdf)) {
+    if (dfdf && (isa<FloatingLiteral>(dfdf) || isa<IntegerLiteral>(dfdf))) {
       ExprResult tmp = dfdf;
       dfdf = m_Sema
                  .ImpCastExprToType(tmp.get(), type,
@@ -1999,8 +1999,9 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     Expr* call = nullptr;
 
     QualType returnType = FD->getReturnType();
-    if (returnType->isReferenceType() &&
-        !returnType.getNonReferenceType().isConstQualified()) {
+    if ((returnType->isReferenceType() &&
+        !returnType.getNonReferenceType().isConstQualified())
+        || returnType->isPointerType()) {
       DiffRequest calleeFnForwPassReq;
       calleeFnForwPassReq.Function = FD;
       calleeFnForwPassReq.Mode = DiffMode::reverse_mode_forward_pass;
@@ -2058,7 +2059,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
           utils::BuildMemberExpr(m_Sema, getCurrentScope(), callRes, "value");
       auto* resAdjoint =
           utils::BuildMemberExpr(m_Sema, getCurrentScope(), callRes, "adjoint");
-      return StmtDiff(resValue, nullptr, resAdjoint);
+      return StmtDiff(resValue, resAdjoint, resAdjoint);
     } // Recreate the original call expression.
     call = m_Sema
                .ActOnCallExpr(getCurrentScope(), Clone(CE->getCallee()), Loc,
@@ -4088,7 +4089,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         // respect to variable of type X, then the derivative should be of type
         // X. Check this related issue for more details:
         // https://github.com/vgvassilev/clad/issues/385
-        if (effectiveReturnType->isVoidType())
+        if (effectiveReturnType->isVoidType() || effectiveReturnType->isPointerType())
           effectiveReturnType = m_Context.DoubleTy;
         else
           paramTypes.push_back(effectiveReturnType);
@@ -4128,7 +4129,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     std::size_t dParamTypesIdx = m_DiffReq->getNumParams();
 
     if (m_DiffReq.Mode == DiffMode::experimental_pullback &&
-        !m_DiffReq->getReturnType()->isVoidType()) {
+        !m_DiffReq->getReturnType()->isVoidType() && !m_DiffReq->getReturnType()->isPointerType()) {
       ++dParamTypesIdx;
     }
 
@@ -4199,7 +4200,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     }
 
     if (m_DiffReq.Mode == DiffMode::experimental_pullback &&
-        !m_DiffReq->getReturnType()->isVoidType()) {
+        !m_DiffReq->getReturnType()->isVoidType() && !m_DiffReq->getReturnType()->isPointerType()) {
       IdentifierInfo* pullbackParamII = CreateUniqueIdentifier("_d_y");
       QualType pullbackType =
           derivativeFnType->getParamType(m_DiffReq->getNumParams());
