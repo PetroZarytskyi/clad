@@ -26,6 +26,8 @@ DiffMode VectorForwardModeVisitor::GetPushForwardMode() {
 
 QualType
 VectorForwardModeVisitor::GetPushForwardDerivativeType(QualType ParamType) {
+  if (ParamType == m_Context.VoidTy)
+    return ParamType;
   QualType valueType = utils::GetValueType(ParamType);
   QualType resType;
   if (utils::isArrayOrPointerType(ParamType)) {
@@ -58,7 +60,7 @@ DerivativeAndOverload VectorForwardModeVisitor::DeriveVectorMode() {
   assert(m_DiffReq.Mode == DiffMode::vector_forward_mode);
 
   DiffParams args{};
-  for (auto dParam : m_DiffReq.DVI)
+  for (const auto& dParam : m_DiffReq.DVI)
     args.push_back(dParam.param);
 
   // Generate name for the derivative function.
