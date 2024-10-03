@@ -378,6 +378,8 @@ DerivativeAndOverload BaseForwardModeVisitor::Derive() {
 clang::QualType BaseForwardModeVisitor::ComputePushforwardFnReturnType() {
   assert(m_DiffReq.Mode == GetPushForwardMode());
   QualType originalFnRT = m_DiffReq->getReturnType();
+  if (m_DiffReq.Mode == DiffMode::jacobian)
+    return GetPushForwardDerivativeType(originalFnRT);
   if (originalFnRT->isVoidType())
     return m_Context.VoidTy;
   TemplateDecl* valueAndPushforward =
@@ -1445,7 +1447,9 @@ BaseForwardModeVisitor::VisitBinaryOperator(const BinaryOperator* BinOp) {
       derivedR = BuildParens(derivedR);
     opDiff = BuildOp(opCode, derivedL, derivedR);
   } else if (BinOp->isAssignmentOp()) {
-    if (Ldiff.getExpr_dx()->isModifiableLvalue(m_Context) != Expr::MLV_Valid) {
+    if ((Ldiff.getExpr_dx()->isModifiableLvalue(m_Context) !=
+         Expr::MLV_Valid) &&
+        !isCladArrayType(Ldiff.getExpr_dx()->getType())) {
       diag(DiagnosticsEngine::Warning, BinOp->getEndLoc(),
            "derivative of an assignment attempts to assign to unassignable "
            "expr, assignment ignored");

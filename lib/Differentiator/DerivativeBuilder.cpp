@@ -19,6 +19,7 @@
 #include "clad/Differentiator/DiffPlanner.h"
 #include "clad/Differentiator/ErrorEstimator.h"
 #include "clad/Differentiator/HessianModeVisitor.h"
+#include "clad/Differentiator/JacobianModeVisitor.h"
 #include "clad/Differentiator/PushForwardModeVisitor.h"
 #include "clad/Differentiator/ReverseModeForwPassVisitor.h"
 #include "clad/Differentiator/ReverseModeVisitor.h"
@@ -429,8 +430,8 @@ static void registerDerivative(FunctionDecl* derivedFD, Sema& semaRef) {
       HessianModeVisitor H(*this, request);
       result = H.Derive();
     } else if (request.Mode == DiffMode::jacobian) {
-      ReverseModeVisitor R(*this, request);
-      result = R.Derive();
+      JacobianModeVisitor J(*this, request);
+      result = J.DeriveJacobian();
     } else if (request.Mode == DiffMode::error_estimation) {
       ReverseModeVisitor R(*this, request);
       InitErrorEstimation(m_ErrorEstHandler, m_EstModel, *this, request);
