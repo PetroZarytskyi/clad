@@ -2,6 +2,7 @@
 #define FUNCTION_TRAITS
 
 #include "clad/Differentiator/ArrayRef.h"
+#include "clad/Differentiator/Matrix.h"
 
 #include <type_traits>
 
@@ -548,16 +549,17 @@ namespace clad {
     using type = NoFunction*;
   };
 
-  template <class... Args> struct SelectLast;
-
-  template <class... Args>
-  using SelectLast_t = typename SelectLast<Args...>::type;
-
-  template <class T> struct SelectLast<T> { using type = T; };
-
-  template <class T, class... Args> struct SelectLast<T, Args...> {
-    using type = typename SelectLast<Args...>::type;
+  template <class R>
+  struct JacOutputParamType {
+    using type = typename std::conditional<
+        std::is_pointer<R>::value || std::is_array<R>::value,
+        clad::matrix<typename std::remove_pointer<R>::type>&,
+        clad::array<R>
+    >::type;
   };
+
+  template <class R>
+  using JacOutputParamType_t = typename JacOutputParamType<R>::type;
 
   template <class T, class = void> struct JacobianDerivedFnTraits {};
 
@@ -569,7 +571,7 @@ namespace clad {
   // JacobianDerivedFnTraits specializations for pure function pointer types
   template <class ReturnType, class... Args>
   struct JacobianDerivedFnTraits<ReturnType (*)(Args...)> {
-    using type = void (*)(Args..., SelectLast_t<Args...>);
+    using type = void (*)(Args..., JacOutputParamType_t<Args>...);
   };
 
   /// These macro expansions are used to cover all possible cases of
@@ -584,7 +586,7 @@ namespace clad {
 #define JacobianDerivedFnTraits_AddSPECS(var, cv, vol, ref, noex)              \
   template <typename R, typename C, typename... Args>                          \
   struct JacobianDerivedFnTraits<R (C::*)(Args...) cv vol ref noex> {          \
-    using type = void (C::*)(Args..., SelectLast_t<Args...>) cv vol ref noex;  \
+    using type = void (C::*)(Args..., JacOutputParamType_t<Args>...) cv vol ref noex;  \
   };
 
 #if __cpp_noexcept_function_type > 0

@@ -9,6 +9,8 @@ class JacobianModeVisitor : public VectorPushForwardModeVisitor {
 public:
   JacobianModeVisitor(DerivativeBuilder& builder, const DiffRequest& request);
 
+  void ExecuteInsidePushforwardFunctionBlock() override;
+
   DiffMode GetPushForwardMode() override;
 
   std::string GetPushForwardFunctionSuffix() override;
