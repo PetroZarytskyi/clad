@@ -82,7 +82,7 @@ public:
   DiffMode GetPushForwardMode() override;
 
   // Function for setting the independent variables for vector mode.
-  void SetIndependentVarsExpr(clang::Expr* IndVarCountExpr);
+  void SetIndependentVarsExpr();
 };
 } // end namespace clad
 

@@ -15,35 +15,7 @@ VectorPushForwardModeVisitor::VectorPushForwardModeVisitor(
 VectorPushForwardModeVisitor::~VectorPushForwardModeVisitor() = default;
 
 void VectorPushForwardModeVisitor::ExecuteInsidePushforwardFunctionBlock() {
-  // Extract the last parameter of the m_Derivative function.
-  // This parameter will either be a clad array or a matrix.
-  // If it's a clad array, use it's size, or if it's a clad matrix
-  // use the size of 0th element of the matrix.
-  ParmVarDecl* lastParam =
-      m_Derivative->getParamDecl(m_Derivative->getNumParams() - 1);
-  QualType lastParamType = utils::GetValueType(lastParam->getType());
-  Expr* lastParamExpr = BuildDeclRef(lastParam);
-  Expr* lastParamSizeExpr = nullptr;
-  if (isCladArrayType(lastParamType)) {
-    lastParamSizeExpr = BuildArrayRefSizeExpr(lastParamExpr);
-  } else {
-    auto* zero =
-        ConstantFolder::synthesizeLiteral(m_Context.IntTy, m_Context, 0);
-    Expr* arraySubscriptExpr =
-        m_Sema
-            .ActOnArraySubscriptExpr(getCurrentScope(), lastParamExpr,
-                                     lastParamExpr->getExprLoc(), zero, noLoc)
-            .get();
-    lastParamSizeExpr = BuildArrayRefSizeExpr(arraySubscriptExpr);
-  }
-
-  // Create a variable to store the total number of independent variables.
-  Expr* indVarCountExpr = lastParamSizeExpr;
-  auto* totalIndVars =
-      BuildVarDecl(m_Context.UnsignedLongTy, "indepVarCount", indVarCountExpr);
-  addToCurrentBlock(BuildDeclStmt(totalIndVars));
-  SetIndependentVarsExpr(BuildDeclRef(totalIndVars));
-
+  SetIndependentVarsExpr();
   BaseForwardModeVisitor::ExecuteInsidePushforwardFunctionBlock();
 }
 
