@@ -54,19 +54,16 @@ void VectorForwardModeVisitor::SetIndependentVarsExpr(Expr* IndVarCountExpr) {
 }
 
 DerivativeAndOverload
-VectorForwardModeVisitor::DeriveVectorMode(const FunctionDecl* FD,
-                                           const DiffRequest& request) {
-  assert(m_DiffReq == request);
+VectorForwardModeVisitor::DeriveVectorMode() {
+  const FunctionDecl* FD = m_DiffReq.Function;
   assert(m_DiffReq.Mode == DiffMode::vector_forward_mode);
 
   DiffParams args{};
-  DiffInputVarsInfo DVI;
-  DVI = request.DVI;
-  for (auto dParam : DVI)
+  for (auto dParam : m_DiffReq.DVI)
     args.push_back(dParam.param);
 
   // Generate name for the derivative function.
-  std::string derivedFnName = request.BaseFunctionName + "_dvec";
+  std::string derivedFnName = m_DiffReq.BaseFunctionName + "_dvec";
   if (args.size() != FD->getNumParams()) {
     for (auto arg : args) {
       auto it = std::find(FD->param_begin(), FD->param_end(), arg);

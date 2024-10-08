@@ -21,7 +21,7 @@ std::string JacobianModeVisitor::GetPushForwardFunctionSuffix() {
 }
 
 DerivativeAndOverload JacobianModeVisitor::DeriveJacobian() {
-  return DerivePushforward(m_DiffReq.Function, m_DiffReq);
+  return DerivePushforward();
 }
 
 StmtDiff JacobianModeVisitor::VisitReturnStmt(const clang::ReturnStmt* RS) {
