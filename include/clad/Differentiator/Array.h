@@ -446,6 +446,46 @@ operator/(const array<T>& arr1, const array<U>& arr2) {
                                                                        arr2);
 }
 
+/// Function to define element wise adding of an arrays and an array_ref.
+template <typename T, typename U>
+CUDA_HOST_DEVICE
+    array_expression<const array<T>&, BinaryAdd, const array_ref<U>&>
+    operator+(const array<T>& arr1, const array_ref<U>& arr2) {
+  assert(arr1.size() == arr2.size());
+  return array_expression<const array<T>&, BinaryAdd, const array_ref<U>&>(
+      arr1, arr2);
+}
+
+/// Function to define element wise adding of an arrays_ref and an array.
+template <typename T, typename U>
+CUDA_HOST_DEVICE
+    array_expression<const array_ref<T>&, BinaryAdd, const array<U>&>
+    operator+(const array_ref<T>& arr1, const array<U>& arr2) {
+  assert(arr1.size() == arr2.size());
+  return array_expression<const array_ref<T>&, BinaryAdd, const array<U>&>(
+      arr1, arr2);
+}
+
+/// Function to define element wise adding of an arrays and an array_ref.
+template <typename T, typename U>
+CUDA_HOST_DEVICE
+    array_expression<const array<T>&, BinarySub, const array_ref<U>&>
+    operator-(const array<T>& arr1, const array_ref<U>& arr2) {
+  assert(arr1.size() == arr2.size());
+  return array_expression<const array<T>&, BinarySub, const array_ref<U>&>(
+      arr1, arr2);
+}
+
+/// Function to define element wise adding of an arrays_ref and an array.
+template <typename T, typename U>
+CUDA_HOST_DEVICE
+    array_expression<const array_ref<T>&, BinarySub, const array<U>&>
+    operator-(const array_ref<T>& arr1, const array<U>& arr2) {
+  assert(arr1.size() == arr2.size());
+  return array_expression<const array_ref<T>&, BinarySub, const array<U>&>(
+      arr1, arr2);
+}
+
 } // namespace clad
 
 #endif // CLAD_ARRAY_H

@@ -51,6 +51,14 @@ public:
     m_size = a.size();
     return *this;
   }
+  template <typename L, typename BinaryOp, typename R>
+  CUDA_HOST_DEVICE array_ref<T>&
+  operator=(const array_expression<L, BinaryOp, R>& arr_exp) {
+    assert(arr_exp.size() == m_size);
+    for (std::size_t i = 0; i < m_size; i++)
+      m_arr[i] = arr_exp[i];
+    return *this;
+  }
   /// Returns the size of the underlying array
   CUDA_HOST_DEVICE std::size_t size() const { return m_size; }
   CUDA_HOST_DEVICE PUREFUNC T* ptr() const { return m_arr; }
@@ -69,7 +77,7 @@ public:
   // Arithmetic overloads
   /// Divides the arrays element wise
   template <typename U>
-  CUDA_HOST_DEVICE array_ref<T>& operator/=(array_ref<U>& Ar) {
+  CUDA_HOST_DEVICE array_ref<T>& operator/=(const array_ref<U>& Ar) {
     assert(m_size == Ar.size() && "Size of both the array_refs must be equal "
                                   "for carrying out addition assignment");
     for (std::size_t i = 0; i < m_size; i++)
@@ -78,7 +86,7 @@ public:
   }
   /// Multiplies the arrays element wise
   template <typename U>
-  CUDA_HOST_DEVICE array_ref<T>& operator*=(array_ref<U>& Ar) {
+  CUDA_HOST_DEVICE array_ref<T>& operator*=(const array_ref<U>& Ar) {
     assert(m_size == Ar.size() && "Size of both the array_refs must be equal "
                                   "for carrying out addition assignment");
     for (std::size_t i = 0; i < m_size; i++)
@@ -87,7 +95,7 @@ public:
   }
   /// Adds the arrays element wise
   template <typename U>
-  CUDA_HOST_DEVICE array_ref<T>& operator+=(array_ref<U>& Ar) {
+  CUDA_HOST_DEVICE array_ref<T>& operator+=(const array_ref<U>& Ar) {
     assert(m_size == Ar.size() && "Size of both the array_refs must be equal "
                                   "for carrying out addition assignment");
     for (std::size_t i = 0; i < m_size; i++)
@@ -96,7 +104,7 @@ public:
   }
   /// Subtracts the arrays element wise
   template <typename U>
-  CUDA_HOST_DEVICE array_ref<T>& operator-=(array_ref<U>& Ar) {
+  CUDA_HOST_DEVICE array_ref<T>& operator-=(const array_ref<U>& Ar) {
     assert(m_size == Ar.size() && "Size of both the array_refs must be equal "
                                   "for carrying out addition assignment");
     for (std::size_t i = 0; i < m_size; i++)
@@ -104,28 +112,68 @@ public:
     return *this;
   }
   /// Divides the elements of the array_ref by elements of the array
-  template <typename U> CUDA_HOST_DEVICE array_ref<T>& operator/=(array<U>& A) {
+  template <typename U>
+  CUDA_HOST_DEVICE array_ref<T>& operator/=(const array<U>& A) {
     assert(m_size == A.size() && "Size of arrays must be equal");
     for (std::size_t i = 0; i < m_size; i++)
       m_arr[i] /= A[i];
     return *this;
   }
   /// Multiplies the elements of the array_ref by elements of the array
-  template <typename U> CUDA_HOST_DEVICE array_ref<T>& operator*=(array<U>& A) {
+  template <typename L, typename BinaryOp, typename R>
+  CUDA_HOST_DEVICE array_ref<T>&
+  operator*=(const array_expression<L, BinaryOp, R>& arr_exp) {
+    assert(arr_exp.size() == m_size);
+    for (std::size_t i = 0; i < m_size; i++)
+      m_arr[i] *= arr_exp[i];
+    return *this;
+  }
+  /// Adds the elements of the array_ref by elements of the array
+  template <typename L, typename BinaryOp, typename R>
+  CUDA_HOST_DEVICE array_ref<T>&
+  operator+=(const array_expression<L, BinaryOp, R>& arr_exp) {
+    assert(arr_exp.size() == m_size);
+    for (std::size_t i = 0; i < m_size; i++)
+      m_arr[i] += arr_exp[i];
+    return *this;
+  }
+  /// Subtracts the elements of the array_ref by elements of the array
+  template <typename L, typename BinaryOp, typename R>
+  CUDA_HOST_DEVICE array_ref<T>&
+  operator-=(const array_expression<L, BinaryOp, R>& arr_exp) {
+    assert(arr_exp.size() == m_size);
+    for (std::size_t i = 0; i < m_size; i++)
+      m_arr[i] -= arr_exp[i];
+    return *this;
+  }
+  /// Divides the elements of the array_ref by elements of the array
+  template <typename L, typename BinaryOp, typename R>
+  CUDA_HOST_DEVICE array_ref<T>&
+  operator/=(const array_expression<L, BinaryOp, R>& arr_exp) {
+    assert(arr_exp.size() == m_size);
+    for (std::size_t i = 0; i < m_size; i++)
+      m_arr[i] /= arr_exp[i];
+    return *this;
+  }
+  /// Multiplies the elements of the array_ref by elements of the array
+  template <typename U>
+  CUDA_HOST_DEVICE array_ref<T>& operator*=(const array<U>& A) {
     assert(m_size == A.size() && "Size of arrays must be equal");
     for (std::size_t i = 0; i < m_size; i++)
       m_arr[i] *= A[i];
     return *this;
   }
   /// Adds the elements of the array_ref by elements of the array
-  template <typename U> CUDA_HOST_DEVICE array_ref<T>& operator+=(array<U>& A) {
+  template <typename U>
+  CUDA_HOST_DEVICE array_ref<T>& operator+=(const array<U>& A) {
     assert(m_size == A.size() && "Size of arrays must be equal");
     for (std::size_t i = 0; i < m_size; i++)
       m_arr[i] += A[i];
     return *this;
   }
   /// Subtracts the elements of the array_ref by elements of the array
-  template <typename U> CUDA_HOST_DEVICE array_ref<T>& operator-=(array<U>& A) {
+  template <typename U>
+  CUDA_HOST_DEVICE array_ref<T>& operator-=(const array<U>& A) {
     assert(m_size == A.size() && "Size of arrays must be equal");
     for (std::size_t i = 0; i < m_size; i++)
       m_arr[i] -= A[i];
