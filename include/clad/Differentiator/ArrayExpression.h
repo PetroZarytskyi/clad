@@ -121,6 +121,49 @@ public:
         const array_expression<LeftExp, BinaryOp, RightExp>&, BinaryDiv, RE>(
         *this, r);
   }
+  // Operator overload for addition.
+  template <typename L1, typename BinOp1, typename R1,
+            typename L2, typename BinOp2, typename R2>
+  array_expression<const array_expression<L1, BinOp1, R1>&,
+                   BinaryAdd, const array_expression<L2, BinOp2, R2>&>
+  operator+(const array_expression<L2, BinOp2, R2>& r) const {
+    return array_expression<
+        const array_expression<L1, BinOp1, R1>&, BinaryAdd, const array_expression<L2, BinOp2, R2>&>(
+        *this, r);
+  }
+
+  // Operator overload for multiplication.
+  template <typename L1, typename BinOp1, typename R1,
+            typename L2, typename BinOp2, typename R2>
+  array_expression<const array_expression<L1, BinOp1, R1>&,
+                   BinarySub, const array_expression<L2, BinOp2, R2>&>
+  operator*(const array_expression<L2, BinOp2, R2>& r) const {
+    return array_expression<
+        const array_expression<L1, BinOp1, R1>&, BinaryMul, const array_expression<L2, BinOp2, R2>&>(
+        *this, r);
+  }
+
+  // Operator overload for subtraction.
+  template <typename L1, typename BinOp1, typename R1,
+            typename L2, typename BinOp2, typename R2>
+  array_expression<const array_expression<L1, BinOp1, R1>&,
+                   BinarySub, const array_expression<L2, BinOp2, R2>&>
+  operator-(const array_expression<L2, BinOp2, R2>& r) const {
+    return array_expression<
+        const array_expression<L1, BinOp1, R1>&, BinarySub, const array_expression<L2, BinOp2, R2>&>(
+        *this, r);
+  }
+
+  // Operator overload for division.
+  template <typename L1, typename BinOp1, typename R1,
+            typename L2, typename BinOp2, typename R2>
+  array_expression<const array_expression<L1, BinOp1, R1>&,
+                   BinaryDiv, const array_expression<L2, BinOp2, R2>&>
+  operator/(const array_expression<L2, BinOp2, R2>& r) const {
+    return array_expression<
+        const array_expression<L1, BinOp1, R1>&, BinaryDiv, const array_expression<L2, BinOp2, R2>&>(
+        *this, r);
+  }
 };
 
 // Operator overload for addition, when the right operand is an array_expression
