@@ -1230,7 +1230,16 @@ StmtDiff BaseForwardModeVisitor::VisitCallExpr(const CallExpr* CE) {
   callDiff = m_Builder.BuildCallToCustomDerivativeOrNumericalDiff(
       customPushforward, customDerivativeArgs, getCurrentScope(),
       const_cast<DeclContext*>(FD->getDeclContext()));
-
+  // Custom derivative templates can be written in a
+  // general way that works for both vectorized and non-vectorized
+  // modes. We have to also look for the pushforward with the regular name.
+  if (!callDiff && m_DiffReq.Mode != DiffMode::forward) {
+    customPushforward =
+        clad::utils::ComputeEffectiveFnName(FD) + "_pushforward";
+    callDiff = m_Builder.BuildCallToCustomDerivativeOrNumericalDiff(
+        customPushforward, customDerivativeArgs, getCurrentScope(),
+        const_cast<DeclContext*>(FD->getDeclContext()));
+  }
   if (!isLambda) {
     // Check if it is a recursive call.
     if (!callDiff && (FD == m_DiffReq.Function) &&
