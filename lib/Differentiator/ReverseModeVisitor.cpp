@@ -316,12 +316,6 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     const FunctionDecl* FD = m_DiffReq.Function;
     if (m_ExternalSource)
       m_ExternalSource->ActOnStartOfDerive();
-
-    // FIXME: reverse mode plugins may have request mode other than
-    // `DiffMode::reverse`, but they still need the `DiffMode::reverse` mode
-    // specific behaviour, because they are "reverse" mode plugins.
-    // assert(m_DiffReq.Mode == DiffMode::reverse ||
-    //        m_DiffReq.Mode == DiffMode::jacobian && "Unexpected Mode.");
     if (m_DiffReq.Mode == DiffMode::error_estimation)
       // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
       const_cast<DiffRequest&>(m_DiffReq).Mode = DiffMode::reverse;
@@ -341,29 +335,12 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
 
     if (m_ExternalSource)
       m_ExternalSource->ActAfterParsingDiffArgs(m_DiffReq, args);
-    // Save the type of the output parameter(s) that is add by clad to the
-    // derived function
-    if (m_DiffReq.Mode == DiffMode::jacobian) {
-      unsigned lastArgN = m_DiffReq->getNumParams() - 1;
-      outputArrayStr = m_DiffReq->getParamDecl(lastArgN)->getNameAsString();
-    }
 
     auto derivativeBaseName = m_DiffReq.BaseFunctionName;
     std::string gradientName = derivativeBaseName + funcPostfix();
     // To be consistent with older tests, nothing is appended to 'f_grad' if
     // we differentiate w.r.t. all the parameters at once.
-    if (m_DiffReq.Mode == DiffMode::jacobian) {
-      // If Jacobian is asked, the last parameter is the result parameter
-      // and should be ignored
-      if (args.size() != FD->getNumParams()-1){
-        for (const auto* arg : args) {
-          const auto* const it =
-              std::find(FD->param_begin(), FD->param_end() - 1, arg);
-          auto idx = std::distance(FD->param_begin(), it);
-          gradientName += ('_' + std::to_string(idx));
-        }
-      }
-    } else if (args.size() != FD->getNumParams()) {
+    if (args.size() != FD->getNumParams()) {
       for (const auto* arg : args) {
         const auto* it = std::find(FD->param_begin(), FD->param_end(), arg);
         auto idx = std::distance(FD->param_begin(), it);
@@ -390,7 +367,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     bool shouldCreateOverload = false;
     // FIXME: Gradient overload doesn't know how to handle additional parameters
     // added by the plugins yet.
-    if (m_DiffReq.Mode != DiffMode::jacobian && numExtraParam == 0)
+    if (numExtraParam == 0)
       shouldCreateOverload = true;
     if (!m_DiffReq.DeclarationOnly && !m_DiffReq.DerivedFDPrototypes.empty())
       // If the overload is already created, we don't need to create it again.
@@ -462,37 +439,6 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     gradientFD->setBody(nullptr);
 
     if (!m_DiffReq.DeclarationOnly) {
-      if (m_DiffReq.Mode == DiffMode::jacobian) {
-        // Reference to the output parameter.
-        m_Result = BuildDeclRef(params.back());
-        numParams = args.size();
-
-        // Creates the ArraySubscriptExprs for the independent variables
-        size_t idx = 0;
-        for (const auto* arg : args) {
-          // FIXME: fix when adding array inputs, now we are just skipping all
-          // array/pointer inputs (not treating them as independent variables).
-          if (utils::isArrayOrPointerType(arg->getType())) {
-            if (arg->getName() == "p")
-              m_Variables[arg] = m_Result;
-            idx += 1;
-            continue;
-          }
-          auto size_type = m_Context.getSizeType();
-          unsigned size_type_bits = m_Context.getIntWidth(size_type);
-          // Create the idx literal.
-          auto* i = IntegerLiteral::Create(
-              m_Context, llvm::APInt(size_type_bits, idx), size_type, noLoc);
-          // Create the jacobianMatrix[idx] expression.
-          auto* result_at_i =
-              m_Sema.CreateBuiltinArraySubscriptExpr(m_Result, noLoc, i, noLoc)
-                  .get();
-          m_Variables[arg] = result_at_i;
-          idx += 1;
-          m_IndependentVars.push_back(arg);
-        }
-      }
-
       if (m_ExternalSource)
         m_ExternalSource->ActBeforeCreatingDerivedFnBodyScope();
 
@@ -673,10 +619,6 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       ParmVarDecl* param = paramsRef[i];
       // derived variables are already created for independent variables.
       if (m_Variables.count(param))
-        continue;
-      // in vector mode last non diff parameter is output parameter.
-      if (m_DiffReq.Mode == DiffMode::jacobian &&
-          i == m_DiffReq->getNumParams() - 1)
         continue;
       auto VDDerivedType = param->getType();
       // We cannot initialize derived variable for pointer types because
@@ -1580,48 +1522,31 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       if (DRE->getDecl()->getType()->isReferenceType() &&
           VD->getType()->isPointerType())
         clonedDRE = BuildOp(UO_Deref, clonedDRE);
-      if (m_DiffReq.Mode == DiffMode::jacobian) {
-        if (m_VectorOutput.size() <= outputArrayCursor)
-          return StmtDiff(clonedDRE);
-
-        auto it = m_VectorOutput[outputArrayCursor].find(VD);
-        if (it == std::end(m_VectorOutput[outputArrayCursor]))
-          return StmtDiff(clonedDRE); // Not an independent variable, ignored.
-
-        // Create the (jacobianMatrix[idx] += dfdx) statement.
-        if (dfdx()) {
-          auto* add_assign = BuildOp(BO_AddAssign, it->second, dfdx());
-          // Add it to the body statements.
-          addToCurrentBlock(add_assign, direction::reverse);
-        }
-        return StmtDiff(clonedDRE, it->second, it->second);
-      } else {
-        // Check DeclRefExpr is a reference to an independent variable.
-        auto it = m_Variables.find(VD);
-        if (it == std::end(m_Variables)) {
-          // Is not an independent variable, ignored.
-          return StmtDiff(clonedDRE);
-        }
-        // Create the (_d_param[idx] += dfdx) statement.
-        if (dfdx()) {
-          // FIXME: not sure if this is generic.
-          // Don't update derivatives of record types.
-          if (!VD->getType()->isRecordType()) {
-            Expr* base = it->second;
-            if (auto* UO = dyn_cast<UnaryOperator>(it->second))
-              base = UO->getSubExpr()->IgnoreImpCasts();
-            if (shouldUseCudaAtomicOps(base)) {
-              Expr* atomicCall = BuildCallToCudaAtomicAdd(it->second, dfdx());
-              // Add it to the body statements.
-              addToCurrentBlock(atomicCall, direction::reverse);
-            } else {
-              auto* add_assign = BuildOp(BO_AddAssign, it->second, dfdx());
-              addToCurrentBlock(add_assign, direction::reverse);
-            }
+      // Check DeclRefExpr is a reference to an independent variable.
+      auto it = m_Variables.find(VD);
+      if (it == std::end(m_Variables)) {
+        // Is not an independent variable, ignored.
+        return StmtDiff(clonedDRE);
+      }
+      // Create the (_d_param[idx] += dfdx) statement.
+      if (dfdx()) {
+        // FIXME: not sure if this is generic.
+        // Don't update derivatives of record types.
+        if (!VD->getType()->isRecordType()) {
+          Expr* base = it->second;
+          if (auto* UO = dyn_cast<UnaryOperator>(it->second))
+            base = UO->getSubExpr()->IgnoreImpCasts();
+          if (shouldUseCudaAtomicOps(base)) {
+            Expr* atomicCall = BuildCallToCudaAtomicAdd(it->second, dfdx());
+            // Add it to the body statements.
+            addToCurrentBlock(atomicCall, direction::reverse);
+          } else {
+            auto* add_assign = BuildOp(BO_AddAssign, it->second, dfdx());
+            addToCurrentBlock(add_assign, direction::reverse);
           }
         }
-        return StmtDiff(clonedDRE, it->second, it->second);
       }
+      return StmtDiff(clonedDRE, it->second, it->second);
     }
 
     return StmtDiff(clonedDRE);
@@ -2574,66 +2499,6 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         Expr* RExpr = RDRE ? Visit(R).getRevSweepAsExpr() : R;
 
         return BuildOp(opCode, LExpr, RExpr);
-      }
-
-      // FIXME: Put this code into a separate subroutine and break out early
-      // using return if the diff mode is not jacobian and we are not dealing
-      // with the `outputArray`.
-      if (auto* ASE = dyn_cast<ArraySubscriptExpr>(L)) {
-        if (auto* DRE =
-                dyn_cast<DeclRefExpr>(ASE->getBase()->IgnoreImplicit())) {
-          auto type = QualType(DRE->getType()->getPointeeOrArrayElementType(),
-                               /*Quals=*/0);
-          std::string DRE_str = DRE->getDecl()->getNameAsString();
-
-          llvm::APSInt intIdx;
-          Expr::EvalResult res;
-          Expr::SideEffectsKind AllowSideEffects =
-              Expr::SideEffectsKind::SE_NoSideEffects;
-          auto isIdxValid =
-              ASE->getIdx()->EvaluateAsInt(res, m_Context, AllowSideEffects);
-
-          if (DRE_str == outputArrayStr && isIdxValid) {
-            intIdx = res.Val.getInt();
-            if (m_DiffReq.Mode == DiffMode::jacobian) {
-              outputArrayCursor = intIdx.getExtValue();
-
-              std::unordered_map<const clang::ValueDecl*, clang::Expr*>
-                  temp_m_Variables;
-              for (unsigned i = 0; i < numParams; i++) {
-                auto size_type = m_Context.getSizeType();
-                unsigned size_type_bits = m_Context.getIntWidth(size_type);
-                llvm::APInt idxValue(size_type_bits,
-                                     i + (outputArrayCursor * numParams));
-                auto* idx = IntegerLiteral::Create(m_Context, idxValue,
-                                                   size_type, noLoc);
-                // Create the jacobianMatrix[idx] expression.
-                auto* result_at_i = m_Sema
-                                        .CreateBuiltinArraySubscriptExpr(
-                                            m_Result, noLoc, idx, noLoc)
-                                        .get();
-                temp_m_Variables[m_IndependentVars[i]] = result_at_i;
-              }
-              if (m_VectorOutput.size() <= outputArrayCursor)
-                m_VectorOutput.resize(outputArrayCursor + 1);
-              m_VectorOutput[outputArrayCursor] = std::move(temp_m_Variables);
-            }
-
-            auto* dfdf = ConstantFolder::synthesizeLiteral(m_Context.IntTy,
-                                                           m_Context, 1);
-            ExprResult tmp = dfdf;
-            dfdf = m_Sema
-                       .ImpCastExprToType(tmp.get(), type,
-                                          m_Sema.PrepareScalarCast(tmp, type))
-                       .get();
-            auto ReturnResult = DifferentiateSingleExpr(R, dfdf);
-            StmtDiff ReturnDiff = ReturnResult.first;
-            Stmt* Reverse = ReturnDiff.getStmt_dx();
-            addToCurrentBlock(Reverse, direction::reverse);
-            for (Stmt* S : cast<CompoundStmt>(ReturnDiff.getStmt())->body())
-              addToCurrentBlock(S, direction::forward);
-          }
-        }
       }
 
       // Visit LHS, but delay emission of its derivative statements, save them
@@ -4546,11 +4411,6 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         if (it != std::end(diffParams))
           paramTypes.push_back(ComputeParamType(PVD->getType()));
       }
-    } else if (m_DiffReq.Mode == DiffMode::jacobian) {
-      std::size_t lastArgIdx = m_DiffReq->getNumParams() - 1;
-      QualType derivativeParamType =
-          m_DiffReq->getParamDecl(lastArgIdx)->getType();
-      paramTypes.push_back(derivativeParamType);
     }
     return paramTypes;
   }
@@ -4572,8 +4432,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
 
     if (const auto* MD = dyn_cast<CXXMethodDecl>(m_DiffReq.Function)) {
       const CXXRecordDecl* RD = MD->getParent();
-      if (m_DiffReq.Mode != DiffMode::jacobian && MD->isInstance() &&
-          !RD->isLambda()) {
+      if (MD->isInstance() && !RD->isLambda()) {
         auto* thisDerivativePVD = utils::BuildParmVarDecl(
             m_Sema, m_Derivative, CreateUniqueIdentifier("_d_this"),
             derivativeFnType->getParamType(dParamTypesIdx));
@@ -4655,18 +4514,6 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       ++dParamTypesIdx;
     }
 
-    if (m_DiffReq.Mode == DiffMode::jacobian) {
-      IdentifierInfo* II = CreateUniqueIdentifier("jacobianMatrix");
-      // FIXME: Why are we taking storageClass of `params.front()`?
-      auto* dPVD = utils::BuildParmVarDecl(
-          m_Sema, m_Derivative, II,
-          derivativeFnType->getParamType(dParamTypesIdx),
-          params.front()->getStorageClass());
-      paramDerivatives.push_back(dPVD);
-      if (dPVD->getIdentifier())
-        m_Sema.PushOnScopeChains(dPVD, getCurrentScope(),
-                                 /*AddToContext=*/false);
-    }
     params.insert(params.end(), paramDerivatives.begin(),
                   paramDerivatives.end());
     // FIXME: If we do not consider diffParams as an independent argument for
