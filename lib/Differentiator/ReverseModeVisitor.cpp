@@ -1931,18 +1931,15 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     std::vector<size_t> globalCallArgs;
     if (!OverloadedDerivedFn) {
       size_t idx = 0;
-
       for (auto* argDerivative : CallArgDx) {
-        Expr* gradArgExpr = nullptr;
         QualType paramTy = FD->getParamDecl(idx)->getType();
-        if (!argDerivative || utils::isArrayOrPointerType(paramTy) ||
+        if (argDerivative &&
+            !(utils::isArrayOrPointerType(paramTy) ||
             isCladArrayType(argDerivative->getType()) ||
-            isa<CUDAKernelCallExpr>(origCall))
-          gradArgExpr = argDerivative;
-        else
-          gradArgExpr =
+            isa<CUDAKernelCallExpr>(origCall)))
+          argDerivative =
               BuildOp(UO_AddrOf, argDerivative, m_DiffReq->getLocation());
-        DerivedCallOutputArgs.push_back(gradArgExpr);
+        DerivedCallOutputArgs.push_back(argDerivative);
         idx++;
       }
       Expr* pullback = dfdx();
