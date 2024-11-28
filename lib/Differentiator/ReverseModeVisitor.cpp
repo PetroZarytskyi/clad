@@ -1739,14 +1739,16 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         QualType ptrType = m_Context.getPointerType(m_Context.getRecordType(
             FD->getDeclContext()->getOuterLexicalRecordContext()));
         baseDiff =
-            StmtDiff(Clone(dyn_cast<CXXOperatorCallExpr>(origCall)->getArg(0)),
+            StmtDiff(Clone(arguments[0]),
                       new (m_Context) CXXNullPtrLiteralExpr(ptrType, Loc));
+          arguments.erase(arguments.begin());
       } else if (MD->isInstance()) {
         const Expr* baseOriginalE = nullptr;
         if (const auto* MCE = dyn_cast<CXXMemberCallExpr>(origCall))
           baseOriginalE = MCE->getImplicitObjectArgument();
         else if (isa<CXXOperatorCallExpr>(origCall)) {
           baseOriginalE = arguments[0];
+          arguments.erase(arguments.begin());
         } if (baseOriginalE->isXValue()) {
           QualType dBaseTy = getNonConstType(baseOriginalE->getType(), m_Context, m_Sema);
           VarDecl* dBaseDecl = BuildVarDecl(dBaseTy, "_r", getZeroInit(dBaseTy));
@@ -1768,13 +1770,9 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         DerivedCallOutputArgs.push_back(baseDerivative);
       }
     }
-
-    for (std::size_t i = static_cast<std::size_t>(isMethodOperatorCall),
-                     e = arguments.size();
-         i != e; ++i) {
-      const Expr* arg = arguments[i];
-      const auto* PVD = FD->getParamDecl(
-          i - static_cast<unsigned long>(isMethodOperatorCall));
+    std::size_t i = 0;
+    for (const Expr* arg : arguments) {
+      const auto* PVD = FD->getParamDecl(i++);
       StmtDiff argDiff{};
       // We do not need to create result arg for arguments passed by reference
       // because the derivatives of arguments passed by reference are directly
@@ -1981,8 +1979,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       pullbackCallArgs = DerivedCallArgs;
 
       if (pullback)
-        pullbackCallArgs.insert(pullbackCallArgs.begin() + arguments.size() -
-                                    static_cast<int>(isMethodOperatorCall),
+        pullbackCallArgs.insert(pullbackCallArgs.begin() + arguments.size(),
                                 pullback);
 
       // Try to find it in builtin derivatives
@@ -2199,10 +2196,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         CallArgs.push_back(derivedBase);
       }
 
-      for (std::size_t i = static_cast<std::size_t>(isMethodOperatorCall),
-                       e = arguments.size();
-           i != e; ++i) {
-        const Expr* arg = arguments[i];
+      for (const Expr* arg : arguments) {
         StmtDiff argDiff = Visit(arg);
         // Has to be removed once nondifferentiable arguments are handeled
         if (argDiff.getStmt_dx())
