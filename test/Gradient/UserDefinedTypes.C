@@ -234,11 +234,11 @@ double fn7(dcomplex c1, dcomplex c2) {
 }
 
 // CHECK: void fn7_grad(dcomplex c1, dcomplex c2, dcomplex *_d_c1, dcomplex *_d_c2) {
-// CHECK-NEXT:     dcomplex _t0 = c2;
-// CHECK-NEXT:     dcomplex _t2 = c2;
-// CHECK-NEXT:     double _t1 = c2.real();
-// CHECK-NEXT:     dcomplex _t3 = c1;
-// CHECK-NEXT:     c1.real(c2.imag() + 5 * _t1);
+// CHECK-NEXT:     dcomplex _t0 = c1;
+// CHECK-NEXT:     dcomplex _t1 = c2;
+// CHECK-NEXT:     dcomplex _t3 = c2;
+// CHECK-NEXT:     double _t2 = c2.real();
+// CHECK-NEXT:     c1.real(c2.imag() + 5 * _t2);
 // CHECK-NEXT:     dcomplex _t4 = c1;
 // CHECK-NEXT:     dcomplex _t6 = c1;
 // CHECK-NEXT:     double _t5 = c1.imag();
@@ -248,9 +248,9 @@ double fn7(dcomplex c1, dcomplex c2) {
 // CHECK-NEXT:     }
 // CHECK-NEXT:     {
 // CHECK-NEXT:         double _r0 = 0.;
-// CHECK-NEXT:         _t3.real_pullback(c2.imag() + 5 * _t1, &(*_d_c1), &_r0);
-// CHECK-NEXT:         _t0.imag_pullback(_r0, &(*_d_c2));
-// CHECK-NEXT:         _t2.real_pullback(5 * _r0, &(*_d_c2));
+// CHECK-NEXT:         _t0.real_pullback(c2.imag() + 5 * _t2, &(*_d_c1), &_r0);
+// CHECK-NEXT:         _t1.imag_pullback(_r0, &(*_d_c2));
+// CHECK-NEXT:         _t3.real_pullback(5 * _r0, &(*_d_c2));
 // CHECK-NEXT:     }
 // CHECK-NEXT: }
 
@@ -262,8 +262,8 @@ double fn8(Tangent t, dcomplex c) {
 // CHECK: void updateTo_pullback(double d, Tangent *_d_this, double *_d_d);
 
 // CHECK: void fn8_grad(Tangent t, dcomplex c, Tangent *_d_t, dcomplex *_d_c) {
-// CHECK-NEXT:     dcomplex _t0 = c;
-// CHECK-NEXT:     Tangent _t1 = t;
+// CHECK-NEXT:     Tangent _t0 = t;
+// CHECK-NEXT:     dcomplex _t1 = c;
 // CHECK-NEXT:     t.updateTo(c.real());
 // CHECK-NEXT:     Tangent _t2 = t;
 // CHECK-NEXT:     {
@@ -272,8 +272,8 @@ double fn8(Tangent t, dcomplex c) {
 // CHECK-NEXT:     }
 // CHECK-NEXT:     {
 // CHECK-NEXT:         double _r0 = 0.;
-// CHECK-NEXT:         _t1.updateTo_pullback(c.real(), &(*_d_t), &_r0);
-// CHECK-NEXT:         _t0.real_pullback(_r0, &(*_d_c));
+// CHECK-NEXT:         _t0.updateTo_pullback(c.real(), &(*_d_t), &_r0);
+// CHECK-NEXT:         _t1.real_pullback(_r0, &(*_d_c));
 // CHECK-NEXT:     }
 // CHECK-NEXT: }
 

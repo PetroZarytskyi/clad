@@ -536,8 +536,8 @@ int main() {
 // CHECK-NEXT:                double _r_d0 = _d_res;
 // CHECK-NEXT:                size_t _r0 = {{0U|0UL}};
 // CHECK-NEXT:                {{.*}}at_pullback(&clad::back(_t4), i, _r_d0, &_d_a, &_r0);
-// CHECK-NEXT:                _d_i += _r0;
 // CHECK-NEXT:                clad::pop(_t4);
+// CHECK-NEXT:                _d_i += _r0;
 // CHECK-NEXT:            }
 // CHECK-NEXT:        }
 // CHECK-NEXT:        {{.*}}fill_pullback(&_t0, x, &_d_a, &*_d_x);
@@ -756,8 +756,8 @@ int main() {
 // CHECK-NEXT:                  double _r_d0 = _d_res;
 // CHECK-NEXT:                  size_t _r0 = {{0U|0UL|0}};
 // CHECK-NEXT:                  {{.*}}at_pullback(&{{.*}}back(_t5), i0, _r_d0, &_d_v, &_r0);
-// CHECK-NEXT:                  _d_i0 += _r0;
 // CHECK-NEXT:                  {{.*}}pop(_t5);
+// CHECK-NEXT:                  _d_i0 += _r0;
 // CHECK-NEXT:              }
 // CHECK-NEXT:          }
 // CHECK-NEXT:          for (;; _t0--) {
