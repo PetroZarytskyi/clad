@@ -1715,6 +1715,12 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     StmtDiff baseDiff;
     Expr* baseExpr = nullptr;
 
+    const Expr* baseOriginalE = nullptr;
+    if (isMethodOperatorCall) {
+      baseOriginalE = arguments[0];
+      arguments.erase(arguments.begin());
+    } else if (const auto* MCE = dyn_cast<CXXMemberCallExpr>(origCall))
+      baseOriginalE = MCE->getImplicitObjectArgument();
     /// Add base derivative expression in the derived call output args list if
     /// `CE` is a call to an instance member function.
     if (MD) {
@@ -1722,17 +1728,10 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         QualType ptrType = m_Context.getPointerType(m_Context.getRecordType(
             FD->getDeclContext()->getOuterLexicalRecordContext()));
         baseDiff =
-            StmtDiff(Clone(arguments[0]),
-                      new (m_Context) CXXNullPtrLiteralExpr(ptrType, Loc));
-          arguments.erase(arguments.begin());
+            StmtDiff(Clone(baseOriginalE),
+                      new (m_Context) CXXNullPtrLiteralExpr(ptrType, Loc)); 
       } else if (MD->isInstance()) {
-        const Expr* baseOriginalE = nullptr;
-        if (const auto* MCE = dyn_cast<CXXMemberCallExpr>(origCall))
-          baseOriginalE = MCE->getImplicitObjectArgument();
-        else if (isa<CXXOperatorCallExpr>(origCall)) {
-          baseOriginalE = arguments[0];
-          arguments.erase(arguments.begin());
-        } if (baseOriginalE->isXValue()) {
+        if (baseOriginalE->isXValue()) {
           QualType dBaseTy = getNonConstType(baseOriginalE->getType(), m_Context, m_Sema);
           VarDecl* dBaseDecl = BuildVarDecl(dBaseTy, "_r", getZeroInit(dBaseTy));
           PreCallStmts.push_back(BuildDeclStmt(dBaseDecl));
