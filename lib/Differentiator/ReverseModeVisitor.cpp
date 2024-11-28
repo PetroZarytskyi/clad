@@ -2179,14 +2179,9 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       // they might contain 'clad::pop(..)` expression.
       if (baseDiff.getExpr_dx()) {
         Expr* derivedBase = baseDiff.getExpr_dx();
-        // FIXME: We may need this if-block once we support pointers, and
-        // passing pointers-by-reference if
-        // (isCladArrayType(derivedBase->getType()))
-        //   CallArgs.push_back(derivedBase);
-        // else
-        // Currently derivedBase `*d_this` can never be CladArrayType
-        CallArgs.push_back(
-            BuildOp(UnaryOperatorKind::UO_AddrOf, derivedBase, Loc));
+        if (!utils::isArrayOrPointerType(derivedBase->getType()))
+          derivedBase = BuildOp(UnaryOperatorKind::UO_AddrOf, derivedBase, Loc);
+        CallArgs.push_back(derivedBase);
       }
 
       for (std::size_t i = static_cast<std::size_t>(isMethodOperatorCall),
