@@ -558,6 +558,8 @@ namespace clad {
       clang::VarDecl* getNumRevIterations() const { return m_numRevIterations; }
     };
 
+    StmtDiff DifferentiateCall(const clang::Expr* origCall);
+
     /// Helper function to differentiate a loop body.
     ///
     ///\param[in] body body of the loop

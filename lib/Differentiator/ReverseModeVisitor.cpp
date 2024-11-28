@@ -1490,33 +1490,45 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
   }
 
   StmtDiff ReverseModeVisitor::VisitCallExpr(const CallExpr* CE) {
-    const FunctionDecl* FD = CE->getDirectCallee();
+    return DifferentiateCall(CE);
+  }
+
+  StmtDiff ReverseModeVisitor::DifferentiateCall(const Expr* origCall) {
+    const FunctionDecl* FD = nullptr;
+    llvm::SmallVector<const Expr*, 4> arguments;
+    if (const auto* CE = dyn_cast<CallExpr>(origCall)) {
+      FD = CE->getDirectCallee();
+      std::copy(CE->arg_begin(), CE->arg_end(), std::back_inserter(arguments));
+    } else if (const auto* CE = dyn_cast<CXXConstructExpr>(origCall)) {
+      FD = CE->getConstructor();
+      std::copy(CE->arg_begin(), CE->arg_end(), std::back_inserter(arguments));
+    }
     if (!FD) {
       diag(DiagnosticsEngine::Warning,
-           CE->getEndLoc(),
+           origCall->getEndLoc(),
            "Differentiation of only direct calls is supported. Ignored");
-      return StmtDiff(Clone(CE));
+      return StmtDiff(Clone(origCall));
     }
 
     // FIXME: Revisit this when variadic functions are supported.
     if (FD->getNameAsString() == "printf" || FD->getNameAsString() == "fprintf")
-      return StmtDiff(Clone(CE));
+      return StmtDiff(Clone(origCall));
 
     Expr* CUDAExecConfig = nullptr;
-    if (const auto* KCE = dyn_cast<CUDAKernelCallExpr>(CE))
+    if (const auto* KCE = dyn_cast<CUDAKernelCallExpr>(origCall))
       CUDAExecConfig = Clone(KCE->getConfig());
 
     // If the function is non_differentiable, return zero derivative.
-    if (clad::utils::hasNonDifferentiableAttribute(CE)) {
+    if (clad::utils::hasNonDifferentiableAttribute(origCall)) {
       // Calling the function without computing derivatives
       llvm::SmallVector<Expr*, 4> ClonedArgs;
-      for (unsigned i = 0, e = CE->getNumArgs(); i < e; ++i)
-        ClonedArgs.push_back(Clone(CE->getArg(i)));
+      for (const Expr* arg : arguments)
+        ClonedArgs.push_back(Clone(arg));
 
       SourceLocation validLoc = clad::utils::GetValidSLoc(m_Sema);
       Expr* Call =
           m_Sema
-              .ActOnCallExpr(getCurrentScope(), Clone(CE->getCallee()),
+              .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()),
                              validLoc, ClonedArgs, validLoc, CUDAExecConfig)
               .get();
       // Creating a zero derivative
@@ -1536,10 +1548,10 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     std::string FDName = FD->getNameAsString();
     if (FDName == "begin" || FDName == "end") {
       const Expr* arg = nullptr;
-      if (const auto* MCE = dyn_cast<CXXMemberCallExpr>(CE))
+      if (const auto* MCE = dyn_cast<CXXMemberCallExpr>(origCall))
         arg = MCE->getImplicitObjectArgument();
       else
-        arg = CE->getArg(0);
+        arg = arguments[0];
       if (const auto* CXXCE = dyn_cast<CXXConstructExpr>(arg))
         arg = CXXCE->getArg(0);
       StmtDiff argDiff = Visit(arg);
@@ -1554,11 +1566,11 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     // If the function has no args and is not a member function call then we
     // assume that it is not related to independent variables and does not
     // contribute to gradient.
-    if ((NArgs == 0U) && !isa<CXXMemberCallExpr>(CE) &&
-        !isa<CXXOperatorCallExpr>(CE))
-      return StmtDiff(Clone(CE));
+    if ((NArgs == 0U) && !isa<CXXMemberCallExpr>(origCall) &&
+        !isa<CXXOperatorCallExpr>(origCall))
+      return StmtDiff(Clone(origCall));
 
-    SourceLocation Loc = CE->getExprLoc();
+    SourceLocation Loc = origCall->getExprLoc();
 
     // Stores the call arguments for the function to be derived
     llvm::SmallVector<Expr*, 16> CallArgs{};
@@ -1574,7 +1586,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     // differentiate the call. We just need to visit the arguments to the
     // function.
     if (utils::IsMemoryFunction(FD)) {
-      for (const Expr* Arg : CE->arguments()) {
+      for (const Expr* Arg : arguments) {
         StmtDiff ArgDiff = Visit(Arg, dfdx());
         CallArgs.push_back(ArgDiff.getExpr());
         if (Arg->getType()->isPointerType())
@@ -1584,12 +1596,12 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       }
       Expr* call =
           m_Sema
-              .ActOnCallExpr(getCurrentScope(), Clone(CE->getCallee()), Loc,
+              .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()), Loc,
                              llvm::MutableArrayRef<Expr*>(CallArgs), Loc)
               .get();
       Expr* call_dx =
           m_Sema
-              .ActOnCallExpr(getCurrentScope(), Clone(CE->getCallee()), Loc,
+              .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()), Loc,
                              llvm::MutableArrayRef<Expr*>(DerivedCallArgs), Loc)
               .get();
       if (FD->getNameAsString() == "cudaMalloc") {
@@ -1611,7 +1623,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     // function. Also, don't add any statements either in forward or reverse
     // pass. Instead, add it in m_DeallocExprs.
     if (utils::IsMemoryDeallocationFunction(FD)) {
-      for (const Expr* Arg : CE->arguments()) {
+      for (const Expr* Arg : arguments) {
         StmtDiff ArgDiff = Visit(Arg, dfdx());
         CallArgs.push_back(ArgDiff.getExpr());
         if (auto* DRE = dyn_cast<DeclRefExpr>(ArgDiff.getExpr())) {
@@ -1625,7 +1637,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       }
       Expr* call =
           m_Sema
-              .ActOnCallExpr(getCurrentScope(), Clone(CE->getCallee()), Loc,
+              .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()), Loc,
                              llvm::MutableArrayRef<Expr*>(CallArgs), Loc)
               .get();
       m_DeallocExprs.push_back(call);
@@ -1633,7 +1645,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       if (!DerivedCallArgs.empty()) {
         Expr* call_dx =
             m_Sema
-                .ActOnCallExpr(getCurrentScope(), Clone(CE->getCallee()), Loc,
+                .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()), Loc,
                                llvm::MutableArrayRef<Expr*>(DerivedCallArgs),
                                Loc)
                 .get();
@@ -1645,9 +1657,9 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     // If all arguments are constant literals, then this does not contribute to
     // the gradient.
     // FIXME: revert this when this is integrated in the activity analysis pass.
-    if (!isa<CXXMemberCallExpr>(CE) && !isa<CXXOperatorCallExpr>(CE)) {
+    if (!isa<CXXMemberCallExpr>(origCall) && !isa<CXXOperatorCallExpr>(origCall)) {
       bool allArgsAreConstantLiterals = true;
-      for (const Expr* arg : CE->arguments()) {
+      for (const Expr* arg : arguments) {
         // if it's of type MaterializeTemporaryExpr, then check its
         // subexpression.
         if (const auto* MTE = dyn_cast<MaterializeTemporaryExpr>(arg))
@@ -1678,7 +1690,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         }
       }
       if (allArgsAreConstantLiterals)
-        return StmtDiff(Clone(CE), Clone(CE));
+        return StmtDiff(Clone(origCall), Clone(origCall));
     }
 
     // If the result does not depend on the result of the call, just clone
@@ -1689,14 +1701,14 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     // derived function. In the case of member functions, `implicit`
     // this object is always passed by reference.
     if (!dfdx() && !utils::HasAnyReferenceOrPointerArgument(FD) &&
-        !isa<CXXMemberCallExpr>(CE) && !isa<CXXOperatorCallExpr>(CE)) {
-      for (const Expr* Arg : CE->arguments()) {
+        !isa<CXXMemberCallExpr>(origCall) && !isa<CXXOperatorCallExpr>(origCall)) {
+      for (const Expr* Arg : arguments) {
         StmtDiff ArgDiff = Visit(Arg, dfdx());
         CallArgs.push_back(ArgDiff.getExpr());
       }
       Expr* call =
           m_Sema
-              .ActOnCallExpr(getCurrentScope(), Clone(CE->getCallee()), Loc,
+              .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()), Loc,
                              llvm::MutableArrayRef<Expr*>(CallArgs), Loc,
                              CUDAExecConfig)
               .get();
@@ -1711,12 +1723,12 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     const auto* MD = dyn_cast<CXXMethodDecl>(FD);
     // Method operators have a base like methods do but it's included in the
     // call arguments so we have to shift the indexing of call arguments.
-    bool isMethodOperatorCall = MD && isa<CXXOperatorCallExpr>(CE);
+    bool isMethodOperatorCall = MD && isa<CXXOperatorCallExpr>(origCall);
 
     for (std::size_t i = static_cast<std::size_t>(isMethodOperatorCall),
-                     e = CE->getNumArgs();
+                     e = arguments.size();
          i != e; ++i) {
-      const Expr* arg = CE->getArg(i);
+      const Expr* arg = arguments[i];
       const auto* PVD = FD->getParamDecl(
           i - static_cast<unsigned long>(isMethodOperatorCall));
       StmtDiff argDiff{};
@@ -1738,7 +1750,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         VarDecl* dArgDecl = BuildVarDecl(dArgTy, "_r", getZeroInit(dArgTy));
         PreCallStmts.push_back(BuildDeclStmt(dArgDecl));
         DeclRefExpr* dArgRef = BuildDeclRef(dArgDecl);
-        if (isa<CUDAKernelCallExpr>(CE)) {
+        if (isa<CUDAKernelCallExpr>(origCall)) {
           // Create variables to be allocated and initialized on the device, and
           // then be passed to the kernel pullback.
           //
@@ -1771,10 +1783,10 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
           LookupResult deviceToHostResult =
               utils::LookupQualifiedName("cudaMemcpyDeviceToHost", m_Sema);
           if (deviceToHostResult.empty()) {
-            diag(DiagnosticsEngine::Error, CE->getEndLoc(),
+            diag(DiagnosticsEngine::Error, origCall->getEndLoc(),
                  "Failed to create cudaMemcpy call; cudaMemcpyDeviceToHost not "
                  "found. Creating kernel pullback aborted.");
-            return StmtDiff(Clone(CE));
+            return StmtDiff(Clone(origCall));
           }
           CXXScopeSpec SS;
           Expr* deviceToHostExpr =
@@ -1907,13 +1919,13 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
           QualType ptrType = m_Context.getPointerType(m_Context.getRecordType(
               FD->getDeclContext()->getOuterLexicalRecordContext()));
           baseDiff =
-              StmtDiff(Clone(dyn_cast<CXXOperatorCallExpr>(CE)->getArg(0)),
+              StmtDiff(Clone(dyn_cast<CXXOperatorCallExpr>(origCall)->getArg(0)),
                        new (m_Context) CXXNullPtrLiteralExpr(ptrType, Loc));
         } else if (MD->isInstance()) {
           const Expr* baseOriginalE = nullptr;
-          if (const auto* MCE = dyn_cast<CXXMemberCallExpr>(CE))
+          if (const auto* MCE = dyn_cast<CXXMemberCallExpr>(origCall))
             baseOriginalE = MCE->getImplicitObjectArgument();
-          else if (const auto* OCE = dyn_cast<CXXOperatorCallExpr>(CE))
+          else if (const auto* OCE = dyn_cast<CXXOperatorCallExpr>(origCall))
             baseOriginalE = OCE->getArg(0);
           if (baseOriginalE->isXValue()) {
             QualType dBaseTy = getNonConstType(baseOriginalE->getType(), m_Context, m_Sema);
@@ -1942,7 +1954,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         QualType paramTy = FD->getParamDecl(idx)->getType();
         if (!argDerivative || utils::isArrayOrPointerType(paramTy) ||
             isCladArrayType(argDerivative->getType()) ||
-            isa<CUDAKernelCallExpr>(CE))
+            isa<CUDAKernelCallExpr>(origCall))
           gradArgExpr = argDerivative;
         else
           gradArgExpr =
@@ -1967,7 +1979,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       pullbackCallArgs = DerivedCallArgs;
 
       if (pullback)
-        pullbackCallArgs.insert(pullbackCallArgs.begin() + CE->getNumArgs() -
+        pullbackCallArgs.insert(pullbackCallArgs.begin() + arguments.size() -
                                     static_cast<int>(isMethodOperatorCall),
                                 pullback);
 
@@ -2064,23 +2076,23 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
           // Try numerically deriving it.
           if (NArgs == 1) {
             OverloadedDerivedFn = GetSingleArgCentralDiffCall(
-                Clone(CE->getCallee()), DerivedCallArgs[0],
+                Clone(cast<CallExpr>(origCall)->getCallee()), DerivedCallArgs[0],
                 /*targetPos=*/0,
                 /*numArgs=*/1, DerivedCallArgs, CUDAExecConfig);
             asGrad = !OverloadedDerivedFn;
           } else {
-            auto CEType = getNonConstType(CE->getType(), m_Context, m_Sema);
+            auto CEType = getNonConstType(origCall->getType(), m_Context, m_Sema);
             OverloadedDerivedFn = GetMultiArgCentralDiffCall(
-                Clone(CE->getCallee()), CEType.getCanonicalType(),
-                CE->getNumArgs(), dfdx(), PreCallStmts, PostCallStmts,
+                Clone(cast<CallExpr>(origCall)->getCallee()), CEType.getCanonicalType(),
+                arguments.size(), dfdx(), PreCallStmts, PostCallStmts,
                 DerivedCallArgs, CallArgDx, CUDAExecConfig);
           }
-          CallExprDiffDiagnostics(FD, CE->getBeginLoc());
+          CallExprDiffDiagnostics(FD, origCall->getBeginLoc());
           if (!OverloadedDerivedFn) {
             Stmts& block = getCurrentBlock(direction::reverse);
             block.insert(block.begin(), PreCallStmts.begin(),
                          PreCallStmts.end());
-            return StmtDiff(Clone(CE));
+            return StmtDiff(Clone(origCall));
           }
         } else if (pullbackFD) {
           if (baseDiff.getExpr()) {
@@ -2127,11 +2139,12 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       block.insert(it, PostCallStmts.begin(), PostCallStmts.end());
     }
     if (m_ExternalSource)
-      m_ExternalSource->ActBeforeFinalizingVisitCallExpr(
-          CE, OverloadedDerivedFn, DerivedCallArgs, CallArgDx, asGrad);
+      if (const auto* CE = dyn_cast<CallExpr>(origCall))
+        m_ExternalSource->ActBeforeFinalizingVisitCallExpr(
+            CE, OverloadedDerivedFn, DerivedCallArgs, CallArgDx, asGrad);
 
-    if (isa<CUDAKernelCallExpr>(CE))
-      return StmtDiff(Clone(CE));
+    if (isa<CUDAKernelCallExpr>(origCall))
+      return StmtDiff(Clone(origCall));
 
     Expr* call = nullptr;
 
@@ -2185,9 +2198,9 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       }
 
       for (std::size_t i = static_cast<std::size_t>(isMethodOperatorCall),
-                       e = CE->getNumArgs();
+                       e = arguments.size();
            i != e; ++i) {
-        const Expr* arg = CE->getArg(i);
+        const Expr* arg = arguments[i];
         StmtDiff argDiff = Visit(arg);
         // Has to be removed once nondifferentiable arguments are handeled
         if (argDiff.getStmt_dx())
@@ -2214,7 +2227,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     } // Recreate the original call expression.
 
     if (isMethodOperatorCall) {
-      const auto* OCE = cast<CXXOperatorCallExpr>(CE);
+      const auto* OCE = cast<CXXOperatorCallExpr>(origCall);
       auto* FD = const_cast<CXXMethodDecl*>(
           dyn_cast<CXXMethodDecl>(OCE->getCalleeDecl()));
 
@@ -2236,7 +2249,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     }
 
     call = m_Sema
-               .ActOnCallExpr(getCurrentScope(), Clone(CE->getCallee()), Loc,
+               .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()), Loc,
                               CallArgs, Loc, CUDAExecConfig)
                .get();
     return StmtDiff(call);
