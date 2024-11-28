@@ -2185,16 +2185,13 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     } // Recreate the original call expression.
 
     if (isMethodOperatorCall) {
-      const auto* OCE = cast<CXXOperatorCallExpr>(origCall);
-      auto* FD = const_cast<CXXMethodDecl*>(
-          dyn_cast<CXXMethodDecl>(OCE->getCalleeDecl()));
-
+      auto* FD_const = const_cast<FunctionDecl*>(FD);
       NestedNameSpecifierLoc NNS(FD->getQualifier(),
                                  /*Data=*/nullptr);
-      auto DAP = DeclAccessPair::make(FD, FD->getAccess());
+      auto DAP = DeclAccessPair::make(FD_const, FD->getAccess());
       auto* memberExpr = MemberExpr::Create(
-          m_Context, Clone(OCE->getArg(0)), /*isArrow=*/false, Loc, NNS, noLoc,
-          FD, DAP, FD->getNameInfo(),
+          m_Context, Clone(baseOriginalE), /*isArrow=*/false, Loc, NNS, noLoc,
+          FD_const, DAP, FD->getNameInfo(),
           /*TemplateArgs=*/nullptr, m_Context.BoundMemberTy,
           CLAD_COMPAT_ExprValueKind_R_or_PR_Value,
           ExprObjectKind::OK_Ordinary CLAD_COMPAT_CLANG9_MemberExpr_ExtraParams(
