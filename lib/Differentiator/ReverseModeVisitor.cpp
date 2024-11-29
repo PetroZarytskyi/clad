@@ -1398,7 +1398,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       // with Sema::BuildDeclRefExpr. This is required in some cases, e.g.
       // Sema::BuildDeclRefExpr is responsible for adding captured fields
       // to the underlying struct of a lambda.
-      if (VD->getDeclContext() != m_Sema.CurContext) {
+      if (!VD->getType()->isStructureOrClassType() && VD->getDeclContext() != m_Sema.CurContext) {
         auto* ccDRE = dyn_cast<DeclRefExpr>(clonedDRE);
         NestedNameSpecifier* NNS = DRE->getQualifier();
         auto* referencedDecl = cast<VarDecl>(ccDRE->getDecl());
