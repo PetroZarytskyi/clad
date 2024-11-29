@@ -1542,13 +1542,6 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     }
 
     auto NArgs = FD->getNumParams();
-    // If the function has no args and is not a member function call then we
-    // assume that it is not related to independent variables and does not
-    // contribute to gradient.
-    if ((NArgs == 0U) && !isa<CXXMemberCallExpr>(origCall) &&
-        !isa<CXXOperatorCallExpr>(origCall))
-      return StmtDiff(Clone(origCall));
-
     SourceLocation Loc = origCall->getExprLoc();
 
     // Stores the call arguments for the function to be derived
