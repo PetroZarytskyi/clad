@@ -1706,7 +1706,7 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     const auto* MD = dyn_cast<CXXMethodDecl>(FD);
     // Method operators have a base like methods do but it's included in the
     // call arguments so we have to shift the indexing of call arguments.
-    bool isMethodOperatorCall = MD && isa<CXXOperatorCallExpr>(origCall);
+    bool isMethodOperatorCall = MD && isa<CXXOperatorCallExpr>(origCall) && MD->isInstance();
 
     // Store all the derived call output args (if any)
     llvm::SmallVector<Expr*, 16> DerivedCallOutputArgs{};
@@ -1723,34 +1723,32 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       baseOriginalE = MCE->getImplicitObjectArgument();
     /// Add base derivative expression in the derived call output args list if
     /// `CE` is a call to an instance member function.
-    if (MD) {
-      if (isLambdaCallOperator(MD)) {
-        QualType ptrType = m_Context.getPointerType(m_Context.getRecordType(
-            FD->getDeclContext()->getOuterLexicalRecordContext()));
-        baseDiff =
-            StmtDiff(Clone(baseOriginalE),
-                      new (m_Context) CXXNullPtrLiteralExpr(ptrType, Loc)); 
-      } else if (MD->isInstance()) {
-        if (baseOriginalE->isXValue()) {
-          QualType dBaseTy = getNonConstType(baseOriginalE->getType(), m_Context, m_Sema);
-          VarDecl* dBaseDecl = BuildVarDecl(dBaseTy, "_r", getZeroInit(dBaseTy));
-          PreCallStmts.push_back(BuildDeclStmt(dBaseDecl));
-          DeclRefExpr* dBaseRef = BuildDeclRef(dBaseDecl);
-          baseDiff = Visit(baseOriginalE, dBaseRef);
-          baseDiff.updateStmtDx(Clone(dBaseRef));
-        } else
-          baseDiff = Visit(baseOriginalE);
-        baseExpr = baseDiff.getExpr();
-        Expr* baseDiffStore = GlobalStoreAndRef(baseDiff.getExpr(), "_t", /*force=*/true);
-        if (baseOriginalE->isXValue())
-          baseExpr = baseDiffStore;
-        baseDiff.updateStmt(baseDiffStore);
-        Expr* baseDerivative = baseDiff.getExpr_dx();
-        if (!baseDerivative->getType()->isPointerType())
-          baseDerivative =
-              BuildOp(UnaryOperatorKind::UO_AddrOf, baseDerivative);
-        DerivedCallOutputArgs.push_back(baseDerivative);
-      }
+    if (MD && isLambdaCallOperator(MD)) {
+      QualType ptrType = m_Context.getPointerType(m_Context.getRecordType(
+          FD->getDeclContext()->getOuterLexicalRecordContext()));
+      baseDiff =
+          StmtDiff(Clone(baseOriginalE),
+                    new (m_Context) CXXNullPtrLiteralExpr(ptrType, Loc)); 
+    } else if (baseOriginalE) {
+      if (baseOriginalE->isXValue()) {
+        QualType dBaseTy = getNonConstType(baseOriginalE->getType(), m_Context, m_Sema);
+        VarDecl* dBaseDecl = BuildVarDecl(dBaseTy, "_r", getZeroInit(dBaseTy));
+        PreCallStmts.push_back(BuildDeclStmt(dBaseDecl));
+        DeclRefExpr* dBaseRef = BuildDeclRef(dBaseDecl);
+        baseDiff = Visit(baseOriginalE, dBaseRef);
+        baseDiff.updateStmtDx(Clone(dBaseRef));
+      } else
+        baseDiff = Visit(baseOriginalE);
+      baseExpr = baseDiff.getExpr();
+      Expr* baseDiffStore = GlobalStoreAndRef(baseDiff.getExpr(), "_t", /*force=*/true);
+      if (baseOriginalE->isXValue())
+        baseExpr = baseDiffStore;
+      baseDiff.updateStmt(baseDiffStore);
+      Expr* baseDerivative = baseDiff.getExpr_dx();
+      if (!baseDerivative->getType()->isPointerType())
+        baseDerivative =
+            BuildOp(UnaryOperatorKind::UO_AddrOf, baseDerivative);
+      DerivedCallOutputArgs.push_back(baseDerivative);
     }
     std::size_t i = 0;
     for (const Expr* arg : arguments) {
