@@ -1677,20 +1677,6 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         nonDiff = true;
     }
 
-    if (nonDiff) {
-      for (const Expr* Arg : arguments) {
-        StmtDiff ArgDiff = Visit(Arg);
-        CallArgs.push_back(ArgDiff.getExpr());
-      }
-      Expr* call =
-          m_Sema
-              .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()), Loc,
-                             llvm::MutableArrayRef<Expr*>(CallArgs), Loc,
-                             CUDAExecConfig)
-              .get();
-      return call;
-    }
-
     llvm::SmallVector<Stmt*, 16> PreCallStmts{};
     // Save current index in the current block, to potentially put some
     // statements there later.
@@ -1732,16 +1718,19 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         baseDiff.updateStmtDx(Clone(dBaseRef));
       } else
         baseDiff = Visit(baseOriginalE);
-      baseExpr = baseDiff.getExpr();
-      Expr* baseDiffStore = GlobalStoreAndRef(baseDiff.getExpr(), "_t", /*force=*/true);
-      if (baseOriginalE->isXValue())
-        baseExpr = baseDiffStore;
-      baseDiff.updateStmt(baseDiffStore);
-      Expr* baseDerivative = baseDiff.getExpr_dx();
-      if (!baseDerivative->getType()->isPointerType())
-        baseDerivative =
-            BuildOp(UnaryOperatorKind::UO_AddrOf, baseDerivative);
-      DerivedCallOutputArgs.push_back(baseDerivative);
+        
+      if (!nonDiff) {
+        baseExpr = baseDiff.getExpr();
+        Expr* baseDiffStore = GlobalStoreAndRef(baseDiff.getExpr(), "_t", /*force=*/true);
+        if (baseOriginalE->isXValue())
+          baseExpr = baseDiffStore;
+        baseDiff.updateStmt(baseDiffStore);
+        Expr* baseDerivative = baseDiff.getExpr_dx();
+        if (baseDerivative && !baseDerivative->getType()->isPointerType())
+          baseDerivative =
+              BuildOp(UnaryOperatorKind::UO_AddrOf, baseDerivative);
+        DerivedCallOutputArgs.push_back(baseDerivative);
+      }
     }
     std::size_t i = 0;
     for (const Expr* arg : arguments) {
@@ -1751,7 +1740,8 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       // because the derivatives of arguments passed by reference are directly
       // modified by the derived callee function.
       if (utils::IsReferenceOrPointerArg(arg) ||
-          !m_DiffReq.shouldHaveAdjoint(PVD)) {
+          !m_DiffReq.shouldHaveAdjoint(PVD) ||
+          nonDiff) {
         argDiff = Visit(arg);
         CallArgDx.push_back(argDiff.getExpr_dx());
       } else {
@@ -1835,6 +1825,11 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         argDiff = Visit(arg, BuildDeclRef(dArgDecl));
       }
 
+      if (nonDiff) {
+        CallArgs.push_back(argDiff.getExpr());
+        continue;
+      }
+
       // Save cloned arg in a "global" variable, so that it is accessible from
       // the reverse pass.
       // FIXME: At this point, we assume all the variables passed by reference
@@ -1888,6 +1883,16 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       }
       CallArgs.push_back(argDiff.getExpr());
       DerivedCallArgs.push_back(argDiffStore);
+    }
+
+    if (nonDiff) {
+      Expr* call =
+          m_Sema
+              .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()), Loc,
+                             llvm::MutableArrayRef<Expr*>(CallArgs), Loc,
+                             CUDAExecConfig)
+              .get();
+      return call;
     }
 
     Expr* OverloadedDerivedFn = nullptr;
