@@ -252,9 +252,9 @@ double fn7(double i, double j) {
 // CHECK-NEXT:     }
 // CHECK-NEXT: }
 
-// CHECK: void identity_pullback(double &i, double _d_y, double *_d_i);
-
 // CHECK: clad::ValueAndAdjoint<double &, double &> identity_forw(double &i, double &_d_i);
+
+// CHECK: void identity_pullback(double &i, double _d_y, double *_d_i);
 
 // CHECK: void custom_identity_pullback(double &i, double _d_y, double *_d_i);
 
@@ -916,6 +916,15 @@ double sq_defined_later(double x) {
 // CHECK-NEXT:     }
 // CHECK-NEXT: }
 
+// CHECK: clad::ValueAndAdjoint<double &, double &> identity_forw(double &i, double &_d_i) {
+// CHECK-NEXT:     MyStruct::myFunction();
+// CHECK-NEXT:     double _d__d_i = 0.;
+// CHECK-NEXT:     double _d_i0 = i;
+// CHECK-NEXT:     double _t0 = _d_i0;
+// CHECK-NEXT:     _d_i0 += 1;
+// CHECK-NEXT:     return {i, _d_i};
+// CHECK-NEXT: }
+
 // CHECK: void identity_pullback(double &i, double _d_y, double *_d_i) {
 // CHECK-NEXT:     MyStruct::myFunction();
 // CHECK-NEXT:     double _d__d_i = 0.;
@@ -928,15 +937,6 @@ double sq_defined_later(double x) {
 // CHECK-NEXT:         double _r_d0 = _d__d_i;
 // CHECK-NEXT:     }
 // CHECK-NEXT:     *_d_i += _d__d_i;
-// CHECK-NEXT: }
-
-// CHECK: clad::ValueAndAdjoint<double &, double &> identity_forw(double &i, double &_d_i) {
-// CHECK-NEXT:     MyStruct::myFunction();
-// CHECK-NEXT:     double _d__d_i = 0.;
-// CHECK-NEXT:     double _d_i0 = i;
-// CHECK-NEXT:     double _t0 = _d_i0;
-// CHECK-NEXT:     _d_i0 += 1;
-// CHECK-NEXT:     return {i, _d_i};
 // CHECK-NEXT: }
 
 // CHECK: void custom_identity_pullback(double &i, double _d_y, double *_d_i) {

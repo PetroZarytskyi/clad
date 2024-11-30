@@ -1885,6 +1885,92 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
       DerivedCallArgs.push_back(argDiffStore);
     }
 
+    Expr* resValue = nullptr;
+    Expr* resAdjoint = nullptr;
+    QualType returnType = FD->getReturnType();
+
+    size_t CallArgs_old_size = CallArgs.size();
+
+    if (baseDiff.getExpr_dx() &&
+        !baseDiff.getExpr_dx()->getType()->isPointerType())
+      CallArgDx.insert(CallArgDx.begin(), BuildOp(UnaryOperatorKind::UO_AddrOf,
+                                                  baseDiff.getExpr_dx(), Loc));
+    if (Expr* customForwardPassCE =
+            BuildCallToCustomForwPassFn(FD, CallArgs, CallArgDx, baseExpr)) {
+      if (!utils::isNonConstReferenceType(returnType) &&
+          !returnType->isPointerType())
+        resValue = customForwardPassCE;
+      else {
+        Expr* callRes = StoreAndRef(customForwardPassCE);
+        resValue =
+            utils::BuildMemberExpr(m_Sema, getCurrentScope(), callRes, "value");
+        resAdjoint =
+            utils::BuildMemberExpr(m_Sema, getCurrentScope(), callRes, "adjoint");
+      }
+    } else if (utils::isNonConstReferenceType(returnType) ||
+        returnType->isPointerType()) {
+      DiffRequest calleeFnForwPassReq;
+      calleeFnForwPassReq.Function = FD;
+      calleeFnForwPassReq.Mode = DiffMode::reverse_mode_forward_pass;
+      calleeFnForwPassReq.BaseFunctionName =
+          clad::utils::ComputeEffectiveFnName(FD);
+      calleeFnForwPassReq.VerboseDiags = true;
+
+      FunctionDecl* calleeFnForwPassFD =
+          m_Builder.HandleNestedDiffRequest(calleeFnForwPassReq);
+
+      assert(calleeFnForwPassFD &&
+             "Clad failed to generate callee function forward pass function");
+
+      // FIXME: We are using the derivatives in forward pass here
+      // If `expr_dx()` is only meant to be used in reverse pass,
+      // (for example, `clad::pop(...)` expression and a corresponding
+      // `clad::push(...)` in the forward pass), then this can result in
+      // incorrect derivative or crash at runtime. Ideally, we should have
+      // a separate routine to use derivative in the forward pass.
+
+      // We cannot reuse the derivatives previously computed because
+      // they might contain 'clad::pop(..)` expression.
+      if (baseDiff.getExpr_dx()) {
+        Expr* derivedBase = baseDiff.getExpr_dx();
+        if (!utils::isArrayOrPointerType(derivedBase->getType()))
+          derivedBase = BuildOp(UnaryOperatorKind::UO_AddrOf, derivedBase, Loc);
+
+        CallArgs.push_back(derivedBase);
+      }
+
+      for (const Expr* arg : arguments) {
+        StmtDiff argDiff = Visit(arg);
+        // Has to be removed once nondifferentiable arguments are handeled
+        if (argDiff.getStmt_dx())
+          CallArgs.push_back(argDiff.getExpr_dx());
+        else
+          CallArgs.push_back(getZeroInit(arg->getType()));
+      }
+
+      Expr* call = nullptr;
+      if (Expr* baseE = baseDiff.getExpr()) {
+        call = BuildCallExprToMemFn(baseE, calleeFnForwPassFD->getName(),
+                                    CallArgs, Loc);
+      } else {
+        call = m_Sema
+                   .ActOnCallExpr(getCurrentScope(),
+                                  BuildDeclRef(calleeFnForwPassFD), Loc,
+                                  CallArgs, Loc, CUDAExecConfig)
+                   .get();
+      }
+      call = StoreAndRef(call);
+      resValue =
+          utils::BuildMemberExpr(m_Sema, getCurrentScope(), call, "value");
+      resAdjoint =
+          utils::BuildMemberExpr(m_Sema, getCurrentScope(), call, "adjoint");
+    } // Recreate the original call expression.
+
+    CallArgs.erase(CallArgs.begin() + CallArgs_old_size, CallArgs.end());
+    if (baseDiff.getExpr_dx() &&
+      !baseDiff.getExpr_dx()->getType()->isPointerType())
+      CallArgDx.erase(CallArgDx.begin());
+      
     if (nonDiff) {
       Expr* call =
           m_Sema
@@ -2103,107 +2189,30 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     if (isa<CUDAKernelCallExpr>(origCall))
       return StmtDiff(Clone(origCall));
 
-    Expr* call = nullptr;
-
-    QualType returnType = FD->getReturnType();
-    if (baseDiff.getExpr_dx() &&
-        !baseDiff.getExpr_dx()->getType()->isPointerType())
-      CallArgDx.insert(CallArgDx.begin(), BuildOp(UnaryOperatorKind::UO_AddrOf,
-                                                  baseDiff.getExpr_dx(), Loc));
-
-    if (Expr* customForwardPassCE =
-            BuildCallToCustomForwPassFn(FD, CallArgs, CallArgDx, baseExpr)) {
-      if (!utils::isNonConstReferenceType(returnType) &&
-          !returnType->isPointerType())
-        return StmtDiff{customForwardPassCE};
-      auto* callRes = StoreAndRef(customForwardPassCE);
-      auto* resValue =
-          utils::BuildMemberExpr(m_Sema, getCurrentScope(), callRes, "value");
-      auto* resAdjoint =
-          utils::BuildMemberExpr(m_Sema, getCurrentScope(), callRes, "adjoint");
-      return StmtDiff(resValue, resAdjoint, resAdjoint);
-    }
-    if (utils::isNonConstReferenceType(returnType) ||
-        returnType->isPointerType()) {
-      DiffRequest calleeFnForwPassReq;
-      calleeFnForwPassReq.Function = FD;
-      calleeFnForwPassReq.Mode = DiffMode::reverse_mode_forward_pass;
-      calleeFnForwPassReq.BaseFunctionName =
-          clad::utils::ComputeEffectiveFnName(FD);
-      calleeFnForwPassReq.VerboseDiags = true;
-
-      FunctionDecl* calleeFnForwPassFD =
-          m_Builder.HandleNestedDiffRequest(calleeFnForwPassReq);
-
-      assert(calleeFnForwPassFD &&
-             "Clad failed to generate callee function forward pass function");
-
-      // FIXME: We are using the derivatives in forward pass here
-      // If `expr_dx()` is only meant to be used in reverse pass,
-      // (for example, `clad::pop(...)` expression and a corresponding
-      // `clad::push(...)` in the forward pass), then this can result in
-      // incorrect derivative or crash at runtime. Ideally, we should have
-      // a separate routine to use derivative in the forward pass.
-
-      // We cannot reuse the derivatives previously computed because
-      // they might contain 'clad::pop(..)` expression.
-      if (baseDiff.getExpr_dx()) {
-        Expr* derivedBase = baseDiff.getExpr_dx();
-        if (!utils::isArrayOrPointerType(derivedBase->getType()))
-          derivedBase = BuildOp(UnaryOperatorKind::UO_AddrOf, derivedBase, Loc);
-        CallArgs.push_back(derivedBase);
-      }
-
-      for (const Expr* arg : arguments) {
-        StmtDiff argDiff = Visit(arg);
-        // Has to be removed once nondifferentiable arguments are handeled
-        if (argDiff.getStmt_dx())
-          CallArgs.push_back(argDiff.getExpr_dx());
-        else
-          CallArgs.push_back(getZeroInit(arg->getType()));
-      }
-      if (Expr* baseE = baseDiff.getExpr()) {
-        call = BuildCallExprToMemFn(baseE, calleeFnForwPassFD->getName(),
-                                    CallArgs, Loc);
-      } else {
-        call = m_Sema
-                   .ActOnCallExpr(getCurrentScope(),
-                                  BuildDeclRef(calleeFnForwPassFD), Loc,
+    if (!resValue) {
+      if (isMethodOperatorCall) {
+        auto* FD_const = const_cast<FunctionDecl*>(FD);
+        NestedNameSpecifierLoc NNS(FD->getQualifier(),
+                                  /*Data=*/nullptr);
+        auto DAP = DeclAccessPair::make(FD_const, FD->getAccess());
+        auto* memberExpr = MemberExpr::Create(
+            m_Context, Clone(baseOriginalE), /*isArrow=*/false, Loc, NNS, noLoc,
+            FD_const, DAP, FD->getNameInfo(),
+            /*TemplateArgs=*/nullptr, m_Context.BoundMemberTy,
+            CLAD_COMPAT_ExprValueKind_R_or_PR_Value,
+            ExprObjectKind::OK_Ordinary CLAD_COMPAT_CLANG9_MemberExpr_ExtraParams(
+                NOUR_None));
+        resValue = m_Sema
+                  .BuildCallToMemberFunction(getCurrentScope(), memberExpr, Loc,
+                                              CallArgs, Loc)
+                  .get();
+      } else
+        resValue = m_Sema
+                  .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()), Loc,
                                   CallArgs, Loc, CUDAExecConfig)
-                   .get();
+                  .get();
       }
-      auto* callRes = StoreAndRef(call);
-      auto* resValue =
-          utils::BuildMemberExpr(m_Sema, getCurrentScope(), callRes, "value");
-      auto* resAdjoint =
-          utils::BuildMemberExpr(m_Sema, getCurrentScope(), callRes, "adjoint");
-      return StmtDiff(resValue, resAdjoint, resAdjoint);
-    } // Recreate the original call expression.
-
-    if (isMethodOperatorCall) {
-      auto* FD_const = const_cast<FunctionDecl*>(FD);
-      NestedNameSpecifierLoc NNS(FD->getQualifier(),
-                                 /*Data=*/nullptr);
-      auto DAP = DeclAccessPair::make(FD_const, FD->getAccess());
-      auto* memberExpr = MemberExpr::Create(
-          m_Context, Clone(baseOriginalE), /*isArrow=*/false, Loc, NNS, noLoc,
-          FD_const, DAP, FD->getNameInfo(),
-          /*TemplateArgs=*/nullptr, m_Context.BoundMemberTy,
-          CLAD_COMPAT_ExprValueKind_R_or_PR_Value,
-          ExprObjectKind::OK_Ordinary CLAD_COMPAT_CLANG9_MemberExpr_ExtraParams(
-              NOUR_None));
-      call = m_Sema
-                 .BuildCallToMemberFunction(getCurrentScope(), memberExpr, Loc,
-                                            CallArgs, Loc)
-                 .get();
-      return StmtDiff(call);
-    }
-
-    call = m_Sema
-               .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()), Loc,
-                              CallArgs, Loc, CUDAExecConfig)
-               .get();
-    return StmtDiff(call);
+    return StmtDiff(resValue, resAdjoint, resAdjoint);
   }
 
   Expr* ReverseModeVisitor::GetMultiArgCentralDiffCall(

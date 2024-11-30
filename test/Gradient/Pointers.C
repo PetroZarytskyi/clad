@@ -472,8 +472,8 @@ double* ptrValFn (double* x, int n) {
   return x;
 }
 
-// CHECK: void ptrValFn_pullback(double *x, int n, double *_d_x, int *_d_n);
 // CHECK: clad::ValueAndAdjoint<double *, double *> ptrValFn_forw(double *x, int n, double *_d_x, int _d_n);
+// CHECK: void ptrValFn_pullback(double *x, int n, double *_d_x, int *_d_n);
 
 double nestedPtrFn (double x, double y) {
   double arr[] = {x, y}; 
@@ -612,6 +612,14 @@ int main() {
   printf("%.2f %.2f\n", d_i, d_j); // CHECK-EXEC: 0.00 1.00
 }
 
+// CHECK: clad::ValueAndAdjoint<double *, double *> ptrValFn_forw(double *x, int n, double *_d_x, int _d_n) {
+// CHECK-NEXT:     double *_t0 = x;
+// CHECK-NEXT:     double *_t1 = _d_x;
+// CHECK-NEXT:     _d_x += n;
+// CHECK-NEXT:     x += n;
+// CHECK-NEXT:     return {x, _d_x};
+// CHECK-NEXT: }
+
 // CHECK: void ptrValFn_pullback(double *x, int n, double *_d_x, int *_d_n) {
 // CHECK-NEXT:     double *_t0 = x;
 // CHECK-NEXT:     double *_t1 = _d_x;
@@ -621,12 +629,4 @@ int main() {
 // CHECK-NEXT:         x = _t0;
 // CHECK-NEXT:         _d_x = _t1;
 // CHECK-NEXT:     }
-// CHECK-NEXT: }
-
-// CHECK: clad::ValueAndAdjoint<double *, double *> ptrValFn_forw(double *x, int n, double *_d_x, int _d_n) {
-// CHECK-NEXT:     double *_t0 = x;
-// CHECK-NEXT:     double *_t1 = _d_x;
-// CHECK-NEXT:     _d_x += n;
-// CHECK-NEXT:     x += n;
-// CHECK-NEXT:     return {x, _d_x};
 // CHECK-NEXT: }

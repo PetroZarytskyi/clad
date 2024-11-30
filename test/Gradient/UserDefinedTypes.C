@@ -658,6 +658,14 @@ int main() {
 // CHECK-NEXT:     }
 // CHECK-NEXT: }
 
+// CHECK: inline constexpr clad::ValueAndAdjoint<MyStruct &, MyStruct &> operator_equal_forw(MyStruct &&arg, MyStruct *_d_this, MyStruct &&_d_arg) noexcept {
+// CHECK-NEXT:    double _t0 = this->a;
+// CHECK-NEXT:    this->a = arg.a;
+// CHECK-NEXT:    double _t1 = this->b;
+// CHECK-NEXT:    this->b = arg.b;
+// CHECK-NEXT:    return {*this, (*_d_this)};
+// CHECK-NEXT:}
+
 // CHECK: inline constexpr void operator_equal_pullback(MyStruct &&arg, MyStruct _d_y, MyStruct *_d_this, MyStruct *_d_arg) noexcept {
 // CHECK-NEXT:    double _t0 = this->a;
 // CHECK-NEXT:    this->a = arg.a;
@@ -675,12 +683,4 @@ int main() {
 // CHECK-NEXT:        (*_d_this).a = 0.;
 // CHECK-NEXT:        (*_d_arg).a += _r_d0;
 // CHECK-NEXT:    }
-// CHECK-NEXT:}
-
-// CHECK: inline constexpr clad::ValueAndAdjoint<MyStruct &, MyStruct &> operator_equal_forw(MyStruct &&arg, MyStruct *_d_this, MyStruct &&_d_arg) noexcept {
-// CHECK-NEXT:    double _t0 = this->a;
-// CHECK-NEXT:    this->a = arg.a;
-// CHECK-NEXT:    double _t1 = this->b;
-// CHECK-NEXT:    this->b = arg.b;
-// CHECK-NEXT:    return {*this, (*_d_this)};
 // CHECK-NEXT:}
