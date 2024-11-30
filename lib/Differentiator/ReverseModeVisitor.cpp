@@ -1970,16 +1970,35 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
     if (baseDiff.getExpr_dx() &&
       !baseDiff.getExpr_dx()->getType()->isPointerType())
       CallArgDx.erase(CallArgDx.begin());
-      
-    if (nonDiff) {
-      Expr* call =
-          m_Sema
-              .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()), Loc,
-                             llvm::MutableArrayRef<Expr*>(CallArgs), Loc,
-                             CUDAExecConfig)
-              .get();
-      return call;
-    }
+
+    if (!resValue) {
+      if (isa<CUDAKernelCallExpr>(origCall))
+        resValue = Clone(origCall);
+      else if (isMethodOperatorCall) {
+        auto* FD_const = const_cast<FunctionDecl*>(FD);
+        NestedNameSpecifierLoc NNS(FD->getQualifier(),
+                                  /*Data=*/nullptr);
+        auto DAP = DeclAccessPair::make(FD_const, FD->getAccess());
+        auto* memberExpr = MemberExpr::Create(
+            m_Context, Clone(baseOriginalE), /*isArrow=*/false, Loc, NNS, noLoc,
+            FD_const, DAP, FD->getNameInfo(),
+            /*TemplateArgs=*/nullptr, m_Context.BoundMemberTy,
+            CLAD_COMPAT_ExprValueKind_R_or_PR_Value,
+            ExprObjectKind::OK_Ordinary CLAD_COMPAT_CLANG9_MemberExpr_ExtraParams(
+                NOUR_None));
+        resValue = m_Sema
+                  .BuildCallToMemberFunction(getCurrentScope(), memberExpr, Loc,
+                                              CallArgs, Loc)
+                  .get();
+      } else
+        resValue = m_Sema
+                  .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()), Loc,
+                                  CallArgs, Loc, CUDAExecConfig)
+                  .get();
+      }
+
+    if (nonDiff)
+      return StmtDiff(resValue, resAdjoint, resAdjoint);
 
     Expr* OverloadedDerivedFn = nullptr;
     // If the function has a single arg and does not return a reference or take
@@ -2186,32 +2205,6 @@ Expr* getArraySizeExpr(const ArrayType* AT, ASTContext& context,
         m_ExternalSource->ActBeforeFinalizingVisitCallExpr(
             CE, OverloadedDerivedFn, DerivedCallArgs, CallArgDx, asGrad);
 
-    if (isa<CUDAKernelCallExpr>(origCall))
-      return StmtDiff(Clone(origCall));
-
-    if (!resValue) {
-      if (isMethodOperatorCall) {
-        auto* FD_const = const_cast<FunctionDecl*>(FD);
-        NestedNameSpecifierLoc NNS(FD->getQualifier(),
-                                  /*Data=*/nullptr);
-        auto DAP = DeclAccessPair::make(FD_const, FD->getAccess());
-        auto* memberExpr = MemberExpr::Create(
-            m_Context, Clone(baseOriginalE), /*isArrow=*/false, Loc, NNS, noLoc,
-            FD_const, DAP, FD->getNameInfo(),
-            /*TemplateArgs=*/nullptr, m_Context.BoundMemberTy,
-            CLAD_COMPAT_ExprValueKind_R_or_PR_Value,
-            ExprObjectKind::OK_Ordinary CLAD_COMPAT_CLANG9_MemberExpr_ExtraParams(
-                NOUR_None));
-        resValue = m_Sema
-                  .BuildCallToMemberFunction(getCurrentScope(), memberExpr, Loc,
-                                              CallArgs, Loc)
-                  .get();
-      } else
-        resValue = m_Sema
-                  .ActOnCallExpr(getCurrentScope(), Clone(cast<CallExpr>(origCall)->getCallee()), Loc,
-                                  CallArgs, Loc, CUDAExecConfig)
-                  .get();
-      }
     return StmtDiff(resValue, resAdjoint, resAdjoint);
   }
 
