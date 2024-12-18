@@ -365,6 +365,20 @@ namespace clad {
                      clang::StorageClass SC, clang::Expr* defArg,
                      clang::TypeSourceInfo* TSI, clang::SourceLocation Loc) {
       ASTContext& C = semaRef.getASTContext();
+      // bool isPtrType = isa<clang::PointerType>(T);
+      // if (isPtrType)
+      //   T = cast<clang::PointerType>(T)->getPointeeType();
+      // if (T.isVolatileQualified()) {
+      //   clang::SourceLocation loc;
+      //   if (const auto* FD = dyn_cast<clang::FunctionDecl>(DC))
+      //     loc = FD->getBeginLoc();
+      //   EmitDiag(semaRef, DiagnosticsEngine::Warning, loc, "Volatile is not supported. Ignored");
+      //   clang::Qualifiers quals(T.getQualifiers());
+      //   quals.removeVolatile();
+      //   T = semaRef.BuildQualifiedType(T.getUnqualifiedType(), Loc, quals);
+      // }
+      // if (isPtrType)
+      //   T = semaRef.Context.getPointerType(T);
       if (!TSI)
         TSI = C.getTrivialTypeSourceInfo(T, noLoc);
       if (Loc.isInvalid())

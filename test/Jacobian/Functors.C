@@ -65,66 +65,6 @@ struct ExperimentConst {
 
 };
 
-struct ExperimentVolatile {
-  mutable double x, y;
-  ExperimentVolatile(double p_x, double p_y) : x(p_x), y(p_y) {}
-  void operator()(double i, double j, double *output) volatile {
-    output[0] = x*i*i*j;
-    output[1] = y*i*j*j;
-  }
-  void setX(double val) volatile {
-    x = val;
-  }
-
-  // CHECK: void operator_call_jac(double i, double j, double *output, clad::matrix<double> *_d_vector_output) volatile {
-  // CHECK-NEXT:     unsigned long indepVarCount = _d_vector_output->rows() + {{2U|2UL|2ULL}};
-  // CHECK-NEXT:     clad::array<double> _d_vector_i = clad::one_hot_vector(indepVarCount, {{0U|0UL|0ULL}});
-  // CHECK-NEXT:     clad::array<double> _d_vector_j = clad::one_hot_vector(indepVarCount, {{1U|1UL|1ULL}});
-  // CHECK-NEXT:     *_d_vector_output = clad::identity_matrix(_d_vector_output->rows(), indepVarCount, {{2U|2UL|2ULL}});
-  // CHECK-NEXT:     volatile double &_t0 = this->x;
-  // CHECK-NEXT:     double _t1 = _t0 * i;
-  // CHECK-NEXT:     double _t2 = _t1 * i;
-  // CHECK-NEXT:     *_d_vector_output[0] = ((0 * i + _t0 * _d_vector_i) * i + _t1 * _d_vector_i) * j + _t2 * _d_vector_j;
-  // CHECK-NEXT:     output[0] = _t2 * j;
-  // CHECK-NEXT:     volatile double &_t3 = this->y;
-  // CHECK-NEXT:     double _t4 = _t3 * i;
-  // CHECK-NEXT:     double _t5 = _t4 * j;
-  // CHECK-NEXT:     *_d_vector_output[1] = ((0 * i + _t3 * _d_vector_i) * j + _t4 * _d_vector_j) * j + _t5 * _d_vector_j;
-  // CHECK-NEXT:     output[1] = _t5 * j;
-  // CHECK-NEXT: }
-
-};
-
-struct ExperimentConstVolatile {
-  mutable double x, y;
-  ExperimentConstVolatile(double p_x, double p_y) : x(p_x), y(p_y) {}
-  void operator()(double i, double j, double *output) const volatile {
-    output[0] = x*i*i*j;
-    output[1] = y*i*j*j;
-  }
-  void setX(double val) const volatile {
-    x = val;
-  }
-
-  // CHECK: void operator_call_jac(double i, double j, double *output, clad::matrix<double> *_d_vector_output) const volatile {
-  // CHECK-NEXT:     unsigned long indepVarCount = _d_vector_output->rows() + {{2U|2UL|2ULL}};
-  // CHECK-NEXT:     clad::array<double> _d_vector_i = clad::one_hot_vector(indepVarCount, {{0U|0UL|0ULL}});
-  // CHECK-NEXT:     clad::array<double> _d_vector_j = clad::one_hot_vector(indepVarCount, {{1U|1UL|1ULL}});
-  // CHECK-NEXT:     *_d_vector_output = clad::identity_matrix(_d_vector_output->rows(), indepVarCount, {{2U|2UL|2ULL}});
-  // CHECK-NEXT:     volatile double &_t0 = this->x;
-  // CHECK-NEXT:     double _t1 = _t0 * i;
-  // CHECK-NEXT:     double _t2 = _t1 * i;
-  // CHECK-NEXT:     *_d_vector_output[0] = ((0 * i + _t0 * _d_vector_i) * i + _t1 * _d_vector_i) * j + _t2 * _d_vector_j;
-  // CHECK-NEXT:     output[0] = _t2 * j;
-  // CHECK-NEXT:     volatile double &_t3 = this->y;
-  // CHECK-NEXT:     double _t4 = _t3 * i;
-  // CHECK-NEXT:     double _t5 = _t4 * j;
-  // CHECK-NEXT:     *_d_vector_output[1] = ((0 * i + _t3 * _d_vector_i) * j + _t4 * _d_vector_j) * j + _t5 * _d_vector_j;
-  // CHECK-NEXT:     output[1] = _t5 * j;
-  // CHECK-NEXT: }
-
-};
-
 namespace outer {
   namespace inner {
     struct ExperimentNNS {
@@ -200,8 +140,6 @@ int main() {
   Experiment E(3, 5);
   auto E_Again = E;
   const ExperimentConst E_Const(3, 5);
-  volatile ExperimentVolatile E_Volatile(3, 5);
-  const volatile ExperimentConstVolatile E_ConstVolatile(3, 5);
   outer::inner::ExperimentNNS E_NNS(3, 5);
   auto E_NNS_Again = E_NNS;
   auto lambda = [](double i, double j, double *output) {
@@ -247,8 +185,6 @@ int main() {
   INIT(E);
   INIT(E_Again);
   INIT(E_Const);
-  INIT(E_Volatile);
-  INIT(E_ConstVolatile);
   INIT(E_NNS);
   INIT(E_NNS_Again);
   INIT(lambdaNNS);
@@ -258,8 +194,6 @@ int main() {
   TEST(E);                  // CHECK-EXEC: {378.00, 147.00, 405.00, 630.00}, {378.00, 147.00, 405.00, 630.00}
   TEST(E_Again);            // CHECK-EXEC: {378.00, 147.00, 405.00, 630.00}, {378.00, 147.00, 405.00, 630.00}
   TEST(E_Const);            // CHECK-EXEC: {378.00, 147.00, 405.00, 630.00}, {378.00, 147.00, 405.00, 630.00}
-  TEST(E_Volatile);         // CHECK-EXEC: {378.00, 147.00, 405.00, 630.00}, {378.00, 147.00, 405.00, 630.00}
-  TEST(E_ConstVolatile);    // CHECK-EXEC: {378.00, 147.00, 405.00, 630.00}, {378.00, 147.00, 405.00, 630.00}
   TEST(E_NNS);              // CHECK-EXEC: {378.00, 147.00, 405.00, 630.00}, {378.00, 147.00, 405.00, 630.00}
   TEST(E_NNS_Again);        // CHECK-EXEC: {378.00, 147.00, 405.00, 630.00}, {378.00, 147.00, 405.00, 630.00}
   TEST(lambdaWithCapture);  // CHECK-EXEC: {378.00, 147.00, 405.00, 630.00}, {378.00, 147.00, 405.00, 630.00}
@@ -269,8 +203,6 @@ int main() {
   E.setX(6);
   E_Again.setX(6);
   E_Const.setX(6);
-  E_Volatile.setX(6);
-  E_ConstVolatile.setX(6);
   E_NNS.setX(6);
   E_NNS_Again.setX(6);
   x = 6;
@@ -278,8 +210,6 @@ int main() {
   TEST(E);                  // CHECK-EXEC: {756.00, 294.00, 405.00, 630.00}, {756.00, 294.00, 405.00, 630.00}
   TEST(E_Again);            // CHECK-EXEC: {756.00, 294.00, 405.00, 630.00}, {756.00, 294.00, 405.00, 630.00}
   TEST(E_Const);            // CHECK-EXEC: {756.00, 294.00, 405.00, 630.00}, {756.00, 294.00, 405.00, 630.00}
-  TEST(E_Volatile);         // CHECK-EXEC: {756.00, 294.00, 405.00, 630.00}, {756.00, 294.00, 405.00, 630.00}
-  TEST(E_ConstVolatile);    // CHECK-EXEC: {756.00, 294.00, 405.00, 630.00}, {756.00, 294.00, 405.00, 630.00}
   TEST(E_NNS);              // CHECK-EXEC: {756.00, 294.00, 405.00, 630.00}, {756.00, 294.00, 405.00, 630.00}
   TEST(E_NNS_Again);        // CHECK-EXEC: {756.00, 294.00, 405.00, 630.00}, {756.00, 294.00, 405.00, 630.00}
   TEST(lambdaWithCapture);  // CHECK-EXEC: {756.00, 294.00, 405.00, 630.00}, {756.00, 294.00, 405.00, 630.00}

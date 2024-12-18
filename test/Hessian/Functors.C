@@ -41,42 +41,6 @@ struct ExperimentConst {
   // CHECK-NEXT: }
 };
 
-struct ExperimentVolatile {
-  mutable double x, y;
-  ExperimentVolatile(double p_x = 0, double p_y = 0) : x(p_x), y(p_y) {}
-  double operator()(double i, double j) volatile {
-    return x*i*i*j + y*i*j*j;
-  }
-  void setX(double val) volatile {
-    x = val;
-  }
-
-  // CHECK: void operator_call_hessian(double i, double j, double *hessianMatrix) volatile {
-  // CHECK-NEXT:     volatile ExperimentVolatile _d_this;
-  // CHECK-NEXT:     this->operator_call_darg0_grad(i, j, &_d_this, hessianMatrix + {{0U|0UL|0ULL}}, hessianMatrix + {{1U|1UL|1ULL}});
-  // CHECK-NEXT:     volatile ExperimentVolatile _d_this0;
-  // CHECK-NEXT:     this->operator_call_darg1_grad(i, j, &_d_this0, hessianMatrix + {{2U|2UL|2ULL}}, hessianMatrix + {{3U|3UL|3ULL}});
-  // CHECK-NEXT: }
-};
-
-struct ExperimentConstVolatile {
-  mutable double x, y;
-  ExperimentConstVolatile(double p_x = 0, double p_y = 0) : x(p_x), y(p_y) {}
-  double operator()(double i, double j) const volatile {
-    return x*i*i*j + y*i*j*j;
-  }
-  void setX(double val) const volatile {
-    x = val;
-  }
-
-  // CHECK: void operator_call_hessian(double i, double j, double *hessianMatrix) const volatile {
-  // CHECK-NEXT:     volatile ExperimentConstVolatile _d_this;
-  // CHECK-NEXT:     this->operator_call_darg0_grad(i, j, &_d_this, hessianMatrix + {{0U|0UL|0ULL}}, hessianMatrix + {{1U|1UL|1ULL}});
-  // CHECK-NEXT:     volatile ExperimentConstVolatile _d_this0;
-  // CHECK-NEXT:     this->operator_call_darg1_grad(i, j, &_d_this0, hessianMatrix + {{2U|2UL|2ULL}}, hessianMatrix + {{3U|3UL|3ULL}});
-  // CHECK-NEXT: }
-};
-
 namespace outer {
   namespace inner {
     struct ExperimentNNS {
@@ -129,8 +93,6 @@ int main() {
   Experiment E(3, 5);
   auto E_Again = E;
   const ExperimentConst E_Const(3, 5);
-  volatile ExperimentVolatile E_Volatile(3, 5);
-  const volatile ExperimentConstVolatile E_ConstVolatile(3, 5);
   outer::inner::ExperimentNNS E_NNS(3, 5);
   auto E_NNS_Again = E_NNS;
   auto lambda = [](double i, double j) {
@@ -156,8 +118,6 @@ int main() {
   INIT(E);
   INIT(E_Again);
   INIT(E_Const);
-  INIT(E_Volatile);
-  INIT(E_ConstVolatile);
   INIT(E_NNS);
   INIT(E_NNS_Again);
   INIT(lambdaNNS);
@@ -167,8 +127,6 @@ int main() {
   TEST(E);                  // CHECK-EXEC: {54.00, 132.00, 132.00, 70.00}, {54.00, 132.00, 132.00, 70.00}
   TEST(E_Again);            // CHECK-EXEC: {54.00, 132.00, 132.00, 70.00}, {54.00, 132.00, 132.00, 70.00}
   TEST(E_Const);            // CHECK-EXEC: {54.00, 132.00, 132.00, 70.00}, {54.00, 132.00, 132.00, 70.00}
-  TEST(E_Volatile);         // CHECK-EXEC: {54.00, 132.00, 132.00, 70.00}, {54.00, 132.00, 132.00, 70.00}
-  TEST(E_ConstVolatile);    // CHECK-EXEC: {54.00, 132.00, 132.00, 70.00}, {54.00, 132.00, 132.00, 70.00}
   TEST(E_NNS);              // CHECK-EXEC: {54.00, 132.00, 132.00, 70.00}, {54.00, 132.00, 132.00, 70.00}
   TEST(E_NNS_Again);        // CHECK-EXEC: {54.00, 132.00, 132.00, 70.00}, {54.00, 132.00, 132.00, 70.00}
   TEST(lambdaWithCapture);  // CHECK-EXEC: {54.00, 132.00, 132.00, 70.00}, {54.00, 132.00, 132.00, 70.00}
@@ -178,8 +136,6 @@ int main() {
   E.setX(6);
   E_Again.setX(6);
   E_Const.setX(6);
-  E_Volatile.setX(6);
-  E_ConstVolatile.setX(6);
   E_NNS.setX(6);
   E_NNS_Again.setX(6);
   x = 6;
@@ -187,8 +143,6 @@ int main() {
   TEST(E);                  // CHECK-EXEC: {108.00, 174.00, 174.00, 70.00}, {108.00, 174.00, 174.00, 70.00}
   TEST(E_Again);            // CHECK-EXEC: {108.00, 174.00, 174.00, 70.00}, {108.00, 174.00, 174.00, 70.00}
   TEST(E_Const);            // CHECK-EXEC: {108.00, 174.00, 174.00, 70.00}, {108.00, 174.00, 174.00, 70.00}
-  TEST(E_Volatile);         // CHECK-EXEC: {108.00, 174.00, 174.00, 70.00}, {108.00, 174.00, 174.00, 70.00}
-  TEST(E_ConstVolatile);    // CHECK-EXEC: {108.00, 174.00, 174.00, 70.00}, {108.00, 174.00, 174.00, 70.00}
   TEST(E_NNS);              // CHECK-EXEC: {108.00, 174.00, 174.00, 70.00}, {108.00, 174.00, 174.00, 70.00}
   TEST(E_NNS_Again);        // CHECK-EXEC: {108.00, 174.00, 174.00, 70.00}, {108.00, 174.00, 174.00, 70.00}
   TEST(lambdaWithCapture);  // CHECK-EXEC: {108.00, 174.00, 174.00, 70.00}, {108.00, 174.00, 174.00, 70.00}

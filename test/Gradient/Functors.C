@@ -38,52 +38,6 @@ struct ExperimentConst {
   // CHECK-NEXT: }
 };
 
-struct ExperimentVolatile {
-  mutable double x, y;
-  ExperimentVolatile(double p_x = 0, double p_y = 0) : x(p_x), y(p_y) {}
-  double operator()(double i, double j) volatile { return x * i * j; }
-  void setX(double val) volatile { x = val; }
-
-  volatile ExperimentVolatile&
-  operator=(volatile ExperimentVolatile&& E) volatile {
-    x = E.x;
-    y = E.y;
-    return (*this);
-  };
-
-  // CHECK: void operator_call_grad(double i, double j, volatile ExperimentVolatile *_d_this, double *_d_i, double *_d_j) volatile {
-  // CHECK-NEXT:     double _t0 = this->x * i;
-  // CHECK-NEXT:     {
-  // CHECK-NEXT:         (*_d_this).x += 1 * j * i;
-  // CHECK-NEXT:         *_d_i += this->x * 1 * j;
-  // CHECK-NEXT:         *_d_j += _t0 * 1;
-  // CHECK-NEXT:     }
-  // CHECK-NEXT: }
-};
-
-struct ExperimentConstVolatile {
-  mutable double x, y;
-  ExperimentConstVolatile(double p_x = 0, double p_y = 0) : x(p_x), y(p_y) {}
-  double operator()(double i, double j) const volatile { return x * i * j; }
-  void setX(double val) const volatile { x = val; }
-
-  const volatile ExperimentConstVolatile&
-  operator=(const volatile ExperimentConstVolatile& E) const volatile {
-    x = E.x;
-    y = E.y;
-    return (*this);
-  };
-
-  // CHECK: void operator_call_grad(double i, double j, volatile ExperimentConstVolatile *_d_this, double *_d_i, double *_d_j) const volatile {
-  // CHECK-NEXT:     double _t0 = this->x * i;
-  // CHECK-NEXT:     {
-  // CHECK-NEXT:         (*_d_this).x += 1 * j * i;
-  // CHECK-NEXT:         *_d_i += this->x * 1 * j;
-  // CHECK-NEXT:         *_d_j += _t0 * 1;
-  // CHECK-NEXT:     }
-  // CHECK-NEXT: }
-};
-
 namespace outer {
 namespace inner {
 struct ExperimentNNS {
@@ -150,8 +104,6 @@ double x = 3;
 int main() {
   Experiment E(3, 5), d_E, d_E_Const;
   const ExperimentConst E_Const(3, 5);
-  volatile ExperimentVolatile E_Volatile(3, 5), d_E_Volatile, d_E_ConstVolatile;
-  const volatile ExperimentConstVolatile E_ConstVolatile(3, 5);
   outer::inner::ExperimentNNS E_NNS(3, 5), d_E_NNS;
 
   auto lambda = [](double i, double j) { return i * i * j; };
@@ -177,8 +129,6 @@ int main() {
 
   INIT(E);
   INIT(E_Const);
-  INIT(E_Volatile);
-  INIT(E_ConstVolatile);
   INIT(E_NNS);
   INIT(lambda);
   INIT(lambdaWithCapture);
@@ -186,10 +136,6 @@ int main() {
   TEST(E, d_E);                               // CHECK-EXEC: 27.00 21.00
                                               // CHECK-EXEC: 27.00 21.00
   TEST(E_Const, d_E_Const);                   // CHECK-EXEC: 27.00 21.00
-                                              // CHECK-EXEC: 27.00 21.00
-  TEST(E_Volatile, d_E_Volatile);             // CHECK-EXEC: 27.00 21.00
-                                              // CHECK-EXEC: 27.00 21.00
-  TEST(E_ConstVolatile, d_E_ConstVolatile);   // CHECK-EXEC: 27.00 21.00
                                               // CHECK-EXEC: 27.00 21.00
 
   TEST(E_NNS, d_E_NNS);                       // CHECK-EXEC: 27.00 21.00
@@ -202,18 +148,12 @@ int main() {
 
   E.setX(6);
   E_Const.setX(6);
-  E_Volatile.setX(6);
-  E_ConstVolatile.setX(6);
   E_NNS.setX(6);
   x = 6;
 
   TEST(E, d_E);                               // CHECK-EXEC: 54.00 42.00
                                               // CHECK-EXEC: 54.00 42.00
   TEST(E_Const, d_E_Const);                   // CHECK-EXEC: 54.00 42.00
-                                              // CHECK-EXEC: 54.00 42.00
-  TEST(E_Volatile, d_E_Volatile);             // CHECK-EXEC: 54.00 42.00
-                                              // CHECK-EXEC: 54.00 42.00
-  TEST(E_ConstVolatile, d_E_ConstVolatile);   // CHECK-EXEC: 54.00 42.00
                                               // CHECK-EXEC: 54.00 42.00
 
   TEST(E_NNS, d_E_NNS);                       // CHECK-EXEC: 54.00 42.00

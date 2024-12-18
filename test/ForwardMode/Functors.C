@@ -51,54 +51,6 @@ struct ExperimentConst {
   // CHECK-NEXT: }
 };
 
-struct ExperimentVolatile {
-  mutable double x, y;
-  ExperimentVolatile() : x(0), y(0) {}
-  ExperimentVolatile(double p_x, double p_y) : x(p_x), y(p_y) {}
-  double operator()(double i, double j) volatile {
-    return x*i*j;
-  }
-  void setX(double val) volatile {
-    x = val;
-  }
-
-  // CHECK: double operator_call_darg0(double i, double j) volatile {
-  // CHECK-NEXT:     double _d_i = 1;
-  // CHECK-NEXT:     double _d_j = 0;
-  // CHECK-NEXT:     volatile ExperimentVolatile _d_this_obj;
-  // CHECK-NEXT:     volatile ExperimentVolatile *_d_this = &_d_this_obj;
-  // CHECK-NEXT:     double _d_x = 0;
-  // CHECK-NEXT:     double _d_y = 0;
-  // CHECK-NEXT:     volatile double &_t0 = this->x;
-  // CHECK-NEXT:     double _t1 = _t0 * i;
-  // CHECK-NEXT:     return (_d_x * i + _t0 * _d_i) * j + _t1 * _d_j;
-  // CHECK-NEXT: }
-};
-
-struct ExperimentConstVolatile {
-  mutable double x, y;
-  ExperimentConstVolatile() : x(0), y(0) {}
-  ExperimentConstVolatile(double p_x, double p_y) : x(p_x), y(p_y) {}
-  double operator()(double i, double j) const volatile {
-    return x*i*j;
-  }
-  void setX(double val) const volatile {
-    x = val;
-  }
-
-  // CHECK: double operator_call_darg0(double i, double j) const volatile {
-  // CHECK-NEXT:     double _d_i = 1;
-  // CHECK-NEXT:     double _d_j = 0;
-  // CHECK-NEXT:     const volatile ExperimentConstVolatile _d_this_obj;
-  // CHECK-NEXT:     const volatile ExperimentConstVolatile *_d_this = &_d_this_obj;
-  // CHECK-NEXT:     double _d_x = 0;
-  // CHECK-NEXT:     double _d_y = 0;
-  // CHECK-NEXT:     volatile double &_t0 = this->x;
-  // CHECK-NEXT:     double _t1 = _t0 * i;
-  // CHECK-NEXT:     return (_d_x * i + _t0 * _d_i) * j + _t1 * _d_j;
-  // CHECK-NEXT: }
-};
-
 namespace outer {
   namespace inner {
     struct ExperimentNNS {
@@ -157,45 +109,6 @@ struct Widget {
   // CHECK-NEXT:       _t2 /= _t3;
   // CHECK-NEXT:       double &_t4 = this->i;
   // CHECK-NEXT:       double &_t5 = this->i;
-  // CHECK-NEXT:       return _d_i * _t5 + _t4 * _d_i + _d_j;
-  // CHECK-NEXT:   }
-
-  void setI(double new_i) {
-    i = new_i;
-  }
-
-  void setJ(double new_j) {
-    j = new_j;
-  }
-};
-
-struct WidgetConstVolatile {
-  mutable double i, j;
-  char** s;
-  char* char_arr[10];
-  WidgetConstVolatile() : i(0), j(0) {}
-  WidgetConstVolatile(double p_i, double p_j) : i(p_i), j(p_j) {}
-  double operator()() const volatile {
-    j = i * i;
-    j /= i;
-    return i*i + j;
-  }
-
-  // CHECK:   double operator_call_darg0() const volatile {
-  // CHECK-NEXT:       const volatile WidgetConstVolatile _d_this_obj;
-  // CHECK-NEXT:       const volatile WidgetConstVolatile *_d_this = &_d_this_obj;
-  // CHECK-NEXT:       double _d_i = 1;
-  // CHECK-NEXT:       double _d_j = 0;
-  // CHECK-NEXT:       volatile double &_t0 = this->i;
-  // CHECK-NEXT:       volatile double &_t1 = this->i;
-  // CHECK-NEXT:       _d_j = _d_i * _t1 + _t0 * _d_i;
-  // CHECK-NEXT:       this->j = _t0 * _t1;
-  // CHECK-NEXT:       volatile double &_t2 = this->j;
-  // CHECK-NEXT:       volatile double &_t3 = this->i;
-  // CHECK-NEXT:       _d_j = (_d_j * _t3 - _t2 * _d_i) / (_t3 * _t3);
-  // CHECK-NEXT:       _t2 /= _t3;
-  // CHECK-NEXT:       volatile double &_t4 = this->i;
-  // CHECK-NEXT:       volatile double &_t5 = this->i;
   // CHECK-NEXT:       return _d_i * _t5 + _t4 * _d_i + _d_j;
   // CHECK-NEXT:   }
 
@@ -406,8 +319,6 @@ int main() {
   Experiment E(3, 5);
   auto E_Again = E;
   const ExperimentConst E_Const(3, 5);
-  volatile ExperimentVolatile E_Volatile(3, 5);
-  const volatile ExperimentConstVolatile E_ConstVolatile(3, 5);
   outer::inner::ExperimentNNS E_NNS(3, 5);
   auto E_NNS_Again = E_NNS;
   auto lambda = [](double i, double j) {
@@ -442,19 +353,15 @@ int main() {
   // CHECK-NEXT: }
 
   Widget W(3, 5);
-  WidgetConstVolatile W_ConstVolatile(3, 5);
   WidgetArr W_Arr_3(3, 5), W_Arr_5(3, 5);
   WidgetPointer W_Pointer_3(3, 5), W_Pointer_5(3, 5);
 
   INIT(E, "i");
   INIT(E_Again, "i");
   INIT(E_Const, "i");
-  INIT(E_Volatile, "i");
-  INIT(E_ConstVolatile, "i");
   INIT(E_NNS, "i");
   INIT(E_NNS_Again, "i");
   INIT(W, 0);
-  INIT(W_ConstVolatile, 0);
   INIT(W_Arr_3, "arr[3]");
   INIT(W_Arr_5, "arr[5]");
   INIT(W_Pointer_3, "arr[3]");
@@ -466,15 +373,12 @@ int main() {
   TEST(E);                        // CHECK-EXEC: 27.00 27.00
   TEST(E_Again);                  // CHECK-EXEC: 27.00 27.00
   TEST(E_Const);                  // CHECK-EXEC: 27.00 27.00
-  TEST(E_Volatile);               // CHECK-EXEC: 27.00 27.00
-  TEST(E_ConstVolatile);          // CHECK-EXEC: 27.00 27.00
   TEST(E_NNS);                    // CHECK-EXEC: 27.00 27.00
   TEST(E_NNS_Again);              // CHECK-EXEC: 27.00 27.00
   TEST(lambda);                   // CHECK-EXEC: 126.00 126.00
   TEST(lambdaWithCapture);        // CHECK-EXEC: 27.00 27.00
   TEST(lambdaNNS);                // CHECK-EXEC: 126.00 126.00
   TEST_2(W, 3, 5);                // CHECK-EXEC: 7.00 7.00
-  TEST_2(W_ConstVolatile, 3, 5);  // CHECK-EXEC: 7.00 7.00
   TEST_2(W_Arr_3, 3, 5);          // CHECK-EXEC: 4.00 4.00
   TEST_2(W_Arr_5, 3, 5);          // CHECK-EXEC: 6.00 6.00
   TEST_2(W_Pointer_3, 3, 5);      // CHECK-EXEC: 19.00 19.00
@@ -483,8 +387,6 @@ int main() {
   E.setX(6);
   E_Again.setX(6);
   E_Const.setX(6);
-  E_Volatile.setX(6);
-  E_ConstVolatile.setX(6);
   E_NNS.setX(6);
   E_NNS_Again.setX(6);
   x = 6;
@@ -492,13 +394,10 @@ int main() {
   TEST(E);                        // CHECK-EXEC: 54.00 54.00
   TEST(E_Again);                  // CHECK-EXEC: 54.00 54.00
   TEST(E_Const);                  // CHECK-EXEC: 54.00 54.00
-  TEST(E_Volatile);               // CHECK-EXEC: 54.00 54.00
-  TEST(E_ConstVolatile);          // CHECK-EXEC: 54.00 54.00
   TEST(E_NNS);                    // CHECK-EXEC: 54.00 54.00
   TEST(E_NNS_Again);              // CHECK-EXEC: 54.00 54.00
   TEST(lambdaWithCapture);        // CHECK-EXEC: 54.00 54.00
   TEST_2(W, 6, 5);                // CHECK-EXEC: 13.00 13.00
-  TEST_2(W_ConstVolatile, 6, 5);  // CHECK-EXEC: 13.00 13.00
   TEST_2(W_Arr_3, 6, 5);          // CHECK-EXEC: 7.00 7.00
   TEST_2(W_Arr_5, 6, 5);          // CHECK-EXEC: 6.00 6.00
   TEST_2(W_Pointer_3, 6, 5);      // CHECK-EXEC: 37.00 37.00

@@ -33,11 +33,8 @@ int main() {
     func<double>(1, block);
     func<long>(1, block);
     func<long double>(1, block);
-    // Const/Volatile types
+    // Const types
     func<const int>(static_cast<const int>(dummy), block);
-    func<volatile float>(static_cast<volatile float>(dummy), block);
-    func<const volatile double>(static_cast<const volatile double>(dummy),
-                                block);
     // custom type
     func<A>(A(), block);
   }

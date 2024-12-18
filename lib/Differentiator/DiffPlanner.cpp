@@ -822,6 +822,13 @@ namespace clad {
     request.VerboseDiags = true;
     request.Args = E->getArg(1);
     auto* derivedFD = cast<FunctionDecl>(DRE->getDecl());
+    if (const auto* MD = dyn_cast<CXXMethodDecl>(derivedFD))
+      if (MD->isVolatile()) {
+        utils::EmitDiag(
+                    m_Sema, DiagnosticsEngine::Error, MD->getBeginLoc(),
+                    "Volatile is not supported. Ignored");
+        return true;
+      }
     request.Function = derivedFD;
     request.BaseFunctionName = utils::ComputeEffectiveFnName(request.Function);
 
