@@ -208,6 +208,15 @@ double fn24(double d, double e) {
   return *up;
 }
 
+double fn25(double u, double v) {
+    for (int i = 0; i < 2; ++i) {
+      std::vector<double> ls{u, v};
+      ls[1] += ls[0];
+      u = ls[1];
+    }
+    return u;
+}
+
 int main() {
     double d_i, d_j;
     INIT_GRADIENT(fn10);
@@ -225,6 +234,7 @@ int main() {
     INIT_GRADIENT(fn22);
     INIT_GRADIENT(fn23);
     INIT_GRADIENT(fn24);
+    INIT_GRADIENT(fn25);
 
     TEST_GRADIENT(fn10, /*numOfDerivativeArgs=*/2, 3, 5, &d_i, &d_j);  // CHECK-EXEC: {1.00, 1.00}
     TEST_GRADIENT(fn11, /*numOfDerivativeArgs=*/2, 3, 5, &d_i, &d_j);  // CHECK-EXEC: {2.00, 1.00}
@@ -241,6 +251,7 @@ int main() {
     TEST_GRADIENT(fn22, /*numOfDerivativeArgs=*/2, 3, 4, &d_i, &d_j);  // CHECK-EXEC: {-2.00, 1.00}
     TEST_GRADIENT(fn23, /*numOfDerivativeArgs=*/2, 1, 1, &d_i, &d_j);  // CHECK-EXEC: {1.00, 3.00}
     TEST_GRADIENT(fn24, /*NumOfDerivativeArgs=*/2, 3, 5, &d_i, &d_j);  // CHECK-EXEC: {1.00, 5.00}
+    TEST_GRADIENT(fn25, /*numOfDerivativeArgs=*/2, 1, 1, &d_i, &d_j);  // CHECK-EXEC: {1.00, 3.00}
 }
 
 // CHECK: void fn10_grad(double u, double v, double *_d_u, double *_d_v) {
