@@ -2817,6 +2817,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
                                    copyExpr, range, range)
                 .get();
       }
+      // copyExpr->dump();
       m_Sema.AddInitializerToDecl(VDDerived, copyExpr, /*DirectInit=*/true);
       VDDerived->setInitStyle(VarDecl::InitializationStyle::CallInit);
     }
@@ -2995,9 +2996,31 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         // ...
         if (promoteToFnScope) {
           auto* decl = VDDiff.getDecl();
-          if (VD->getInit()) {
+          // llvm::errs() << "\ndecl:\n";
+          // decl->getInit()->dump();
+          // decl->getInit()->IgnoreImplicit()->dump();
+          // VD->dump();
+          // decl->dump();
+          if (Expr* initDiff = decl->getInit()) {
+            initDiff = initDiff->IgnoreImplicit();
+            if (auto* CE = dyn_cast<CXXConstructExpr>(initDiff))
+              if (CE->getNumArgs()==1) {
+                Expr* arg = CE->getArg(0);
+                // arg->dump();
+                // arg->IgnoreImplicit()->dump();
+                if (auto* ILE = dyn_cast<CXXStdInitializerListExpr>(arg->IgnoreImplicit())) {
+                  auto* ILEv = cast<InitListExpr>(ILE->getSubExpr()->IgnoreImplicit());
+                  // initDiff = ILE->getSubExpr();
+                  llvm::SmallVector vec{ILEv->getInit(0)->IgnoreImplicit(), ILEv->getInit(1)->IgnoreImplicit()};
+                  initDiff = m_Sema.ActOnInitList(noLoc, llvm::MutableArrayRef<Expr*>(vec), noLoc).get();
+                }
+                // if (m_Sema.isStdInitializerList(arg->getType(), /*element=*/nullptr))
+                //   initDiff = arg;
+              }
             auto* declRef = BuildDeclRef(decl);
-            auto* assignment = BuildOp(BO_Assign, declRef, decl->getInit());
+            // initDiff->dump();
+            auto* assignment = BuildOp(BO_Assign, declRef, initDiff);
+            // assignment->dump();
             if (isInsideLoop) {
               auto pushPop = StoreAndRestore(declRef);
               if (pushPop.getExpr() != declRef)
@@ -3010,11 +3033,19 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
                   decl, Clone(getArraySizeExpr(AT, m_Context, *this)), true);
               decl->setInitStyle(VarDecl::InitializationStyle::CallInit);
             } else {
-              m_Sema.AddInitializerToDecl(decl, getZeroInit(VD->getType()),
+              auto iiiinnnit = getZeroInit(VD->getType());
+              m_Sema.AddInitializerToDecl(decl, iiiinnnit,
                                           /*DirectInit=*/true);
               decl->setInitStyle(VarDecl::InitializationStyle::CInit);
+              // iiiinnnit->dump();
+              // decl->getInit()->dump();
+              // m_Sema.AddInitializerToDecl(decl, decl->getInit()->IgnoreImplicit(),
+              //                             /*DirectInit=*/true);
+              // decl->getInit()->dump();
             }
+            // assignment->dump();
           }
+          // decl->dump();
         }
 
         decls.push_back(VDDiff.getDecl());
@@ -3112,7 +3143,22 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       for (Decl* decl : classDeclsDiff) {
         auto* vDecl = cast<VarDecl>(decl);
         Expr* init = vDecl->getInit();
+        if (auto* CE = dyn_cast<CXXConstructExpr>(init))
+              if (CE->getNumArgs()==1) {
+                init = CE->getArg(0)->IgnoreImplicit();
+                // arg->dump();
+                // arg->IgnoreImplicit()->dump();
+                // if (auto* ILE = dyn_cast<CXXStdInitializerListExpr>(arg->IgnoreImplicit())) {
+                //   auto* ILEv = cast<InitListExpr>(ILE->getSubExpr()->IgnoreImplicit());
+                //   // initDiff = ILE->getSubExpr();
+                //   llvm::SmallVector vec{ILEv->getInit(0)->IgnoreImplicit(), ILEv->getInit(1)->IgnoreImplicit()};
+                //   initDiff = m_Sema.ActOnInitList(noLoc, llvm::MutableArrayRef<Expr*>(vec), noLoc).get();
+                // }
+                // if (m_Sema.isStdInitializerList(arg->getType(), /*element=*/nullptr))
+                //   initDiff = arg;
+              }
         if (promoteToFnScope && init) {
+          init->dump();
           auto* declRef = BuildDeclRef(vDecl);
           auto* assignment = BuildOp(BO_Assign, declRef, init);
           addToCurrentBlock(assignment, direction::forward);

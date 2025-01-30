@@ -253,7 +253,7 @@ namespace clad {
 
           // if enabled, print ASTs of the derived functions
           if (m_DO.DumpDerivedAST) {
-            DerivativeDecl->dumpColor();
+            DerivativeDecl->dump();
           }
 
           // if enabled, print the derivatives in a file.

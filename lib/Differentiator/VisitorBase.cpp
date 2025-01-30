@@ -428,6 +428,13 @@ namespace clad {
     // Debug clang requires the location to be valid
     if (!OpLoc.isValid())
       OpLoc = utils::GetValidSLoc(m_Sema);
+    if (auto* declRef = dyn_cast<DeclRefExpr>(L))
+      if (declRef->getDecl()->getNameAsString()=="ls") {
+        // L->dump();
+        // R->dump();
+      }
+    // L->dump();
+    // R->dump();
     return m_Sema.BuildBinOp(nullptr, OpLoc, OpCode, L, R).get();
   }
 
