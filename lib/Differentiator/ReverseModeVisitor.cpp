@@ -3143,9 +3143,9 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       for (Decl* decl : classDeclsDiff) {
         auto* vDecl = cast<VarDecl>(decl);
         Expr* init = vDecl->getInit();
-        if (auto* CE = dyn_cast<CXXConstructExpr>(init))
-              if (CE->getNumArgs()==1) {
-                init = CE->getArg(0)->IgnoreImplicit();
+        // if (auto* CE = dyn_cast<CXXConstructExpr>(init))
+        //       if (CE->getNumArgs()==1) {
+        //         init = CE->getArg(0)->IgnoreImplicit();
                 // arg->dump();
                 // arg->IgnoreImplicit()->dump();
                 // if (auto* ILE = dyn_cast<CXXStdInitializerListExpr>(arg->IgnoreImplicit())) {
@@ -3156,7 +3156,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
                 // }
                 // if (m_Sema.isStdInitializerList(arg->getType(), /*element=*/nullptr))
                 //   initDiff = arg;
-              }
+              // }
         if (promoteToFnScope && init) {
           init->dump();
           auto* declRef = BuildDeclRef(vDecl);
