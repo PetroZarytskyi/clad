@@ -4173,17 +4173,6 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         argDiff = Visit(arg, BuildDeclRef(dArgDecl));
       }
 
-      if (utils::isArrayOrPointerType(ArgTy)) {
-        reverseForwAdjointArgs.push_back(adjointArg);
-        adjointArgs.push_back(adjointArg);
-      } else {
-        if (utils::IsReferenceOrPointerArg(arg->IgnoreParenImpCasts()))
-          reverseForwAdjointArgs.push_back(adjointArg);
-        else
-          reverseForwAdjointArgs.push_back(getZeroInit(ArgTy));
-        adjointArgs.push_back(BuildOp(UnaryOperatorKind::UO_AddrOf, adjointArg,
-                                      m_DiffReq->getLocation()));
-      }
       primalArgs.push_back(argDiff.getExpr());
     }
 
@@ -4207,76 +4196,11 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
                        m_DiffReq->getLocation());
 
     if (dThisE) {
-      pullbackArgs.push_back(thisE);
-      pullbackArgs.append(primalArgs.begin(), primalArgs.end());
-      pullbackArgs.push_back(dThisE);
-      pullbackArgs.append(adjointArgs.begin(), adjointArgs.end());
-
       Stmts& curRevBlock = getCurrentBlock(direction::reverse);
       Stmts::iterator it = std::begin(curRevBlock) + insertionPoint;
       curRevBlock.insert(it, prePullbackCallStmts.begin(),
                         prePullbackCallStmts.end());
       it += prePullbackCallStmts.size();
-      std::string customPullbackName = "constructor_pullback";
-      if (Expr* customPullbackCall =
-              m_Builder.BuildCallToCustomDerivativeOrNumericalDiff(
-                  customPullbackName, pullbackArgs, getCurrentScope(), CE)) {
-        curRevBlock.insert(it, customPullbackCall);
-        if (m_TrackConstructorPullbackInfo) {
-          setConstructorPullbackCallInfo(llvm::cast<CallExpr>(customPullbackCall),
-                                        primalArgs.size() + 1);
-        }
-    }
-    }
-    // FIXME: If no compatible custom constructor pullback is found then try
-    // to automatically differentiate the constructor.
-
-    // Create the constructor call in the forward-pass, or creates
-    // 'constructor_forw' call if possible.
-
-    // This works as follows:
-    //
-    // primal code:
-    // ```
-    // SomeClass c(u, v);
-    // ```
-    //
-    // adjoint code:
-    // ```
-    // // forward-pass
-    // clad::ValueAndAdjoint<SomeClass, SomeClass> _t0 =
-    //   constructor_forw(clad::ConstructorReverseForwTag<SomeClass>{}, u, v,
-    //     _d_u, _d_v);
-    // SomeClass _d_c = _t0.adjoint;
-    // SomeClass c = _t0.value;
-    // ```
-    if (Expr* customReverseForwFnCall =
-            BuildCallToCustomForwPassFn(CE, primalArgs, reverseForwAdjointArgs,
-                                        /*baseExpr=*/nullptr)) {
-      if (RD->isAggregate()) {
-        SmallString<128> Name_class;
-        llvm::raw_svector_ostream OS_class(Name_class);
-        RD->getNameForDiagnostic(OS_class, m_Context.getPrintingPolicy(),
-                                 /*qualified=*/true);
-        diag(DiagnosticsEngine::Warning, CE->getBeginLoc(),
-             "'%0' is an aggregate type and its constructor does not require a "
-             "user-defined forward sweep function",
-             {OS_class.str()});
-        const FunctionDecl* constr_forw =
-            cast<CallExpr>(customReverseForwFnCall)->getDirectCallee();
-        SmallString<128> Name_forw;
-        llvm::raw_svector_ostream OS_forw(Name_forw);
-        constr_forw->getNameForDiagnostic(
-            OS_forw, m_Context.getPrintingPolicy(), /*qualified=*/true);
-        diag(DiagnosticsEngine::Note, constr_forw->getBeginLoc(),
-             "'%0' is defined here", {OS_forw.str()});
-      }
-      Expr* callRes = StoreAndRef(customReverseForwFnCall);
-      Expr* val =
-          utils::BuildMemberExpr(m_Sema, getCurrentScope(), callRes, "value");
-      Expr* adjoint =
-          utils::BuildMemberExpr(m_Sema, getCurrentScope(), callRes, "adjoint");
-      return {val, adjoint};
     }
 
     Expr* clonedArgsE = nullptr;
