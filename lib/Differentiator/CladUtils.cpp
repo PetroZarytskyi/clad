@@ -380,14 +380,17 @@ namespace clad {
         valueType = T->getPointeeType();
       else if (T->isReferenceType())
         valueType = T.getNonReferenceType();
-      // FIXME: `QualType::getPointeeOrArrayElementType` loses type qualifiers.
-      else if (T->isArrayType())
-        valueType =
-            T->getPointeeOrArrayElementType()->getCanonicalTypeInternal();
+      else if (const auto* AT = dyn_cast<clang::ArrayType>(T))
+        valueType = AT->getElementType();
       else if (T->isEnumeralType()) {
         if (const auto* ET = dyn_cast<EnumType>(T))
           valueType = ET->getDecl()->getIntegerType();
       }
+      return valueType;
+    }
+
+    clang::QualType GetConstValueType(clang::QualType T) {
+      QualType valueType = GetValueType(T);
       valueType.removeLocalConst();
       return valueType;
     }
