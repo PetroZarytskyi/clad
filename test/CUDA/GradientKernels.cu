@@ -288,16 +288,16 @@ __global__ void add_kernel_7(double *a, double *b) {
 //CHECK-NEXT:    }
 //CHECK-NEXT:}
 
-__device__ double device_fn(double in, double val) {
+__device__ double device_fn(const double in, double val) {
   return in + val;
 }
 
-__global__ void kernel_with_device_call(double *out, double *in, double val) {
+__global__ void kernel_with_device_call(double *out, const double *in, double val) {
   int index = threadIdx.x;
   out[index] = device_fn(in[index], val);
 }
 
-// CHECK: void kernel_with_device_call_grad_0_2(double *out, double *in, double val, double *_d_out, double *_d_val) {
+// CHECK: void kernel_with_device_call_grad_0_2(double *out, const double *in, double val, double *_d_out, double *_d_val) {
 //CHECK-NEXT:    int _d_index = 0;
 //CHECK-NEXT:    int index0 = threadIdx.x;
 //CHECK-NEXT:    double _t0 = out[index0];
@@ -313,22 +313,22 @@ __global__ void kernel_with_device_call(double *out, double *in, double val) {
 //CHECK-NEXT:    }
 //CHECK-NEXT:}
 
-__device__ double device_fn_2(double *in, double val) {
+__device__ double device_fn_2(const double *in, double val) {
   int index = threadIdx.x + blockIdx.x * blockDim.x;
   return in[index] + val;
 }
 
-__global__ void kernel_with_device_call_2(double *out, double *in, double val) {
+__global__ void kernel_with_device_call_2(double *out, const double *in, double val) {
   int index = threadIdx.x;
   out[index] = device_fn_2(in, val);
 } 
 
-__global__ void dup_kernel_with_device_call_2(double *out, double *in, double val) {
+__global__ void dup_kernel_with_device_call_2(double *out, const double *in, double val) {
   int index = threadIdx.x;
   out[index] = device_fn_2(in, val);
 } 
 
-// CHECK: void kernel_with_device_call_2_grad_0_2(double *out, double *in, double val, double *_d_out, double *_d_val) {
+// CHECK: void kernel_with_device_call_2_grad_0_2(double *out, const double *in, double val, double *_d_out, double *_d_val) {
 //CHECK-NEXT:    int _d_index = 0;
 //CHECK-NEXT:    int index0 = threadIdx.x;
 //CHECK-NEXT:    double _t0 = out[index0];
