@@ -2590,13 +2590,10 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     if (isPointerType && VD->getInit() && isa<CXXNewExpr>(VD->getInit()))
       isInitializedByNewExpr = true;
 
-    ConstructorPullbackCallInfo constructorPullbackInfo;
-
     bool isConstructInit =
         VD->getInit() && isa<CXXConstructExpr>(VD->getInit()->IgnoreImplicit());
     const CXXRecordDecl* RD = VD->getType()->getAsCXXRecordDecl();
     bool isNonAggrClass = RD && !RD->isAggregate();
-    bool emptyInitListInit = isNonAggrClass;
 
     // VDDerivedInit now serves two purposes -- as the initial derivative value
     // or the size of the derivative array -- depending on the primal type.
@@ -2627,18 +2624,6 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         VDDerivedInit = getZeroInit(VDDerivedType);
       else
         VDDerivedInit = initDiff.getExpr_dx();
-    }
-
-    if (isConstructInit) {
-      m_TrackConstructorPullbackInfo = true;
-      initDiff = Visit(VD->getInit());
-      m_TrackConstructorPullbackInfo = false;
-      constructorPullbackInfo = getConstructorPullbackCallInfo();
-      resetConstructorPullbackCallInfo();
-      if (initDiff.getExpr_dx()) {
-        VDDerivedInit = initDiff.getExpr_dx();
-        emptyInitListInit = false;
-      }
     }
 
     // if VD is a pointer type, then the initial value is set to the derived
@@ -2684,8 +2669,11 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
           derivedE = BuildOp(UnaryOperatorKind::UO_Deref, derivedE);
       }
 
-      if (VD->getInit() && !isConstructInit)
+      if (VD->getInit()) {
+        m_TrackVarDeclConstructor = true;
         initDiff = Visit(VD->getInit(), derivedE);
+        m_TrackVarDeclConstructor = false;
+      }
 
       // If we are differentiating `VarDecl` corresponding to a local variable
       // inside a loop, then we need to reset it to 0 at each iteration.
@@ -2749,49 +2737,52 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       VDClone = BuildGlobalVarDecl(VDCloneType, VD->getNameAsString(),
                                    initDiff.getExpr(), VD->isDirectInit());
 
-    // We initialize adjoints with original variables as part of
-    // the strategy to maintain the structure of the original variable.
-    // After that, we'll zero-initialize the adjoint. e.g.
-    // ```
-    // std::vector<...> v{x, y, z};
-    // std::vector<...> _d_v{v}; // The length of the vector is preserved
-    // clad::zero_init(_d_v);
-    // ```
-    // Also, if the original is initialized with a zero-constructor, it can be
-    // used for the adjoint as well.
-    bool shouldCopyInitialize =
-        isConstructInit && emptyInitListInit &&
-        cast<CXXConstructExpr>(VD->getInit()->IgnoreImplicit())->getNumArgs();
-    shouldCopyInitialize = shouldCopyInitialize &&
-                           (VDType->getAsCXXRecordDecl() &&
-                            utils::isCopyable(VDType->getAsCXXRecordDecl()));
-    if (shouldCopyInitialize) {
-      Expr* copyExpr = BuildDeclRef(VDClone);
-      QualType origTy = VDClone->getType();
-      if (isInsideLoop) {
-        StmtDiff pushPop = StoreAndRestore(
-            BuildDeclRef(VDDerived), /*prefix=*/"_t", /*moveToTape=*/true);
-        addToCurrentBlock(pushPop.getStmt(), direction::forward);
-        addToCurrentBlock(pushPop.getStmt_dx(), direction::reverse);
+    if (isConstructInit) {
+      // We initialize adjoints with original variables as part of
+      // the strategy to maintain the structure of the original variable.
+      // After that, we'll zero-initialize the adjoint. e.g.
+      // ```
+      // std::vector<...> v{x, y, z};
+      // std::vector<...> _d_v{v}; // The length of the vector is preserved
+      // clad::zero_init(_d_v);
+      // ```
+      // Also, if the original is initialized with a zero-constructor, it can be
+      // used for the adjoint as well.
+      bool shouldCopyInitialize =
+          isNonAggrClass &&
+          cast<CXXConstructExpr>(VD->getInit()->IgnoreImplicit())
+              ->getNumArgs() &&
+          utils::isCopyable(VDType->getAsCXXRecordDecl());
+      if (initDiff.getStmt_dx()) {
+        SetDeclInit(VDDerived, initDiff.getExpr_dx());
+      } else if (shouldCopyInitialize) {
+        Expr* copyExpr = BuildDeclRef(VDClone);
+        QualType origTy = VDClone->getType();
+        if (isInsideLoop) {
+          StmtDiff pushPop = StoreAndRestore(
+              BuildDeclRef(VDDerived), /*prefix=*/"_t", /*moveToTape=*/true);
+          addToCurrentBlock(pushPop.getStmt(), direction::forward);
+          addToCurrentBlock(pushPop.getStmt_dx(), direction::reverse);
+        }
+        // if VDClone is volatile, we have to use const_cast to be able to use
+        // most copy constructors.
+        if (origTy.isVolatileQualified()) {
+          Qualifiers quals(origTy.getQualifiers());
+          quals.removeVolatile();
+          QualType castTy = m_Sema.BuildQualifiedType(
+              origTy.getUnqualifiedType(), noLoc, quals);
+          castTy = m_Context.getLValueReferenceType(castTy);
+          SourceRange range = utils::GetValidSRange(m_Sema);
+          copyExpr =
+              m_Sema
+                  .BuildCXXNamedCast(noLoc, tok::kw_const_cast,
+                                     m_Context.getTrivialTypeSourceInfo(
+                                         castTy, utils::GetValidSLoc(m_Sema)),
+                                     copyExpr, range, range)
+                  .get();
+        }
+        SetDeclInit(VDDerived, copyExpr, /*DirectInit=*/true);
       }
-      // if VDClone is volatile, we have to use const_cast to be able to use
-      // most copy constructors.
-      if (origTy.isVolatileQualified()) {
-        Qualifiers quals(origTy.getQualifiers());
-        quals.removeVolatile();
-        QualType castTy = m_Sema.BuildQualifiedType(origTy.getUnqualifiedType(),
-                                                    noLoc, quals);
-        castTy = m_Context.getLValueReferenceType(castTy);
-        SourceRange range = utils::GetValidSRange(m_Sema);
-        copyExpr =
-            m_Sema
-                .BuildCXXNamedCast(noLoc, tok::kw_const_cast,
-                                   m_Context.getTrivialTypeSourceInfo(
-                                       castTy, utils::GetValidSLoc(m_Sema)),
-                                   copyExpr, range, range)
-                .get();
-      }
-      SetDeclInit(VDDerived, copyExpr, /*DirectInit=*/true);
     }
 
     if (isPointerType && derivedVDE) {
@@ -2839,11 +2830,6 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
          VDType != VDClone->getType()))
       m_DeclReplacements[VD] = VDClone;
 
-    if (!constructorPullbackInfo.empty()) {
-      Expr* dThisE =
-          BuildOp(UnaryOperatorKind::UO_AddrOf, BuildDeclRef(VDDerived));
-      constructorPullbackInfo.updateDThisParm(dThisE);
-    }
     return DeclDiff<VarDecl>(VDClone, VDDerived);
   }
 
@@ -4111,21 +4097,9 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     // Try to create a pullback constructor call
     llvm::SmallVector<Expr*, 4> pullbackArgs;
     const CXXRecordDecl* RD = CE->getConstructor()->getParent();
-    QualType recordType = m_Context.getRecordType(RD);
-    QualType recordPointerType = m_Context.getPointerType(recordType);
-    // dThisE = adjoint of the object being created by this constructor call.
-    //
-    // We cannot fill this arg yet because the object has not yet been
-    // created. The caller which triggers 'VisitCXXConstructExpr' is
-    // responsible for updating this arg.
-    Expr* dThisE = nullptr;
-    if (m_TrackConstructorPullbackInfo)
-      dThisE = getZeroInit(recordPointerType);
-    else if (dfdx())
-      dThisE = BuildOp(UnaryOperatorKind::UO_AddrOf, dfdx(),
-                       m_DiffReq->getLocation());
-
-    if (dThisE) {
+    if (dfdx()) {
+      Expr* dThisE = BuildOp(UnaryOperatorKind::UO_AddrOf, dfdx(),
+                             m_DiffReq->getLocation());
       pullbackArgs.append(primalArgs.begin(), primalArgs.end());
       pullbackArgs.push_back(dThisE);
       pullbackArgs.append(adjointArgs.begin(), adjointArgs.end());
@@ -4140,10 +4114,6 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
               m_Builder.BuildCallToCustomDerivativeOrNumericalDiff(
                   customPullbackName, pullbackArgs, getCurrentScope(), CE)) {
         curRevBlock.insert(it, customPullbackCall);
-        if (m_TrackConstructorPullbackInfo) {
-          setConstructorPullbackCallInfo(
-              llvm::cast<CallExpr>(customPullbackCall), primalArgs.size());
-        }
       }
     }
     // FIXME: If no compatible custom constructor pullback is found then try
@@ -4209,7 +4179,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       // ReturnStmt. However, to support member exprs/calls of constructors, we
       // need to explicitly generate a constructor and not rely on higher level
       // Sema functions.
-      if (CE->isListInitialization() || !m_TrackConstructorPullbackInfo) {
+      if (CE->isListInitialization() || !m_TrackVarDeclConstructor) {
         clonedArgsE = m_Sema.ActOnInitList(noLoc, primalArgs, noLoc).get();
       } else {
         if (CE->getNumArgs() == 0) {
@@ -4492,10 +4462,5 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         m_Builder.BuildCallToCustomDerivativeOrNumericalDiff(
             forwPassFnName, args, getCurrentScope(), callSite);
     return customForwPassCE;
-  }
-
-  void ReverseModeVisitor::ConstructorPullbackCallInfo::updateDThisParm(
-      Expr* dThisE) const {
-    pullbackCE->setArg(thisAdjointArgIdx, dThisE);
   }
 } // end namespace clad
