@@ -590,50 +590,18 @@ static void registerDerivative(Decl* D, Sema& S, const DiffRequest& R) {
     }
 
     DerivativeAndOverload result{};
-    if (request.Mode == DiffMode::forward) {
-      BaseForwardModeVisitor V(*this, request);
-      result = V.Derive();
-    } else if (request.Mode == DiffMode::experimental_pushforward) {
-      PushForwardModeVisitor V(*this, request);
-      result = V.Derive();
-    } else if (request.Mode == DiffMode::vector_forward_mode) {
-      VectorForwardModeVisitor V(*this, request);
-      result = V.DeriveVectorMode();
-    } else if (request.Mode == DiffMode::experimental_vector_pushforward) {
-      VectorPushForwardModeVisitor V(*this, request);
-      result = V.Derive();
-    } else if (request.Mode == DiffMode::reverse) {
-      ReverseModeVisitor V(*this, request);
-      result = V.Derive();
-    } else if (request.Mode == DiffMode::experimental_pullback) {
-      ReverseModeVisitor V(*this, request);
-      if (!m_ErrorEstHandler.empty()) {
+    if (request.Mode != DiffMode::unknown) {
+      std::unique_ptr<VisitorBase> V = BuildVisitor(request);
+      bool errorEstimation = !m_ErrorEstHandler.empty() || request.Mode == DiffMode::error_estimation;
+      if (errorEstimation) {
         InitErrorEstimation(m_ErrorEstHandler, m_EstModel, *this, request);
-        V.AddExternalSource(*m_ErrorEstHandler.back());
+        static_cast<ReverseModeVisitor*>(V.get())->AddExternalSource(*m_ErrorEstHandler.back());
       }
-      result = V.Derive();
-      if (!m_ErrorEstHandler.empty())
+      result = V->Derive();
+      if (errorEstimation)
         CleanupErrorEstimation(m_ErrorEstHandler, m_EstModel);
-    } else if (request.Mode == DiffMode::reverse_mode_forward_pass) {
-      ReverseModeForwPassVisitor V(*this, request);
-      result = V.Derive();
-    } else if (request.Mode == DiffMode::hessian ||
-               request.Mode == DiffMode::hessian_diagonal) {
-      HessianModeVisitor H(*this, request);
-      result = H.Derive();
-    } else if (request.Mode == DiffMode::jacobian) {
-      JacobianModeVisitor J(*this, request);
-      result = J.DeriveJacobian();
-    } else if (request.Mode == DiffMode::error_estimation) {
-      ReverseModeVisitor R(*this, request);
-      InitErrorEstimation(m_ErrorEstHandler, m_EstModel, *this, request);
-      R.AddExternalSource(*m_ErrorEstHandler.back());
-      // Finally begin estimation.
-      result = R.Derive();
-      // Once we are done, we want to clear the model for any further
-      // calls to estimate_error.
-      CleanupErrorEstimation(m_ErrorEstHandler, m_EstModel);
-    } else if (const VarDecl* VD = request.Global) {
+    }
+    else if (const VarDecl* VD = request.Global) {
       // The request represents a global variable, construct the adjoint and
       // register it.
       QualType type = VD->getType();
@@ -663,6 +631,30 @@ static void registerDerivative(Decl* D, Sema& S, const DiffRequest& R) {
     }
 
     return result;
+  }
+
+  std::unique_ptr<VisitorBase>
+  DerivativeBuilder::BuildVisitor(const DiffRequest& request) {
+    VisitorBase* V = nullptr;
+    if (request.Mode == DiffMode::forward)
+      V = new BaseForwardModeVisitor(*this, request);
+    else if (request.Mode == DiffMode::experimental_pushforward)
+      V = new PushForwardModeVisitor(*this, request);
+    else if (request.Mode == DiffMode::vector_forward_mode)
+      V = new VectorForwardModeVisitor(*this, request);
+    else if (request.Mode == DiffMode::experimental_vector_pushforward)
+      V = new VectorPushForwardModeVisitor(*this, request);
+    else if (request.Mode == DiffMode::reverse ||
+        request.Mode == DiffMode::experimental_pullback ||
+        request.Mode == DiffMode::error_estimation)
+      V = new ReverseModeVisitor(*this, request);
+    else if (request.Mode == DiffMode::reverse_mode_forward_pass)
+      V = new ReverseModeForwPassVisitor(*this, request);
+    else if (request.Mode == DiffMode::hessian || request.Mode == DiffMode::hessian_diagonal)
+      V = new HessianModeVisitor(*this, request);
+    else if (request.Mode == DiffMode::jacobian)
+      V = new JacobianModeVisitor(*this, request);
+    return std::unique_ptr<VisitorBase>(V);
   }
 
   FunctionDecl*
