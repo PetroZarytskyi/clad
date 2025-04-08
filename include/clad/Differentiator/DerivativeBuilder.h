@@ -214,6 +214,9 @@ namespace clad {
     /// \param[in] Request The request to be processed.
     /// \returns The derivative function if found, nullptr otherwise.
     clang::FunctionDecl* HandleNestedDiffRequest(DiffRequest& request);
+
+    std::unique_ptr<VisitorBase>
+    BuildVisitor(const DiffRequest& request);
   };
 
 } // end namespace clad
