@@ -656,6 +656,8 @@ namespace clad {
     /// store a pointer to their size expression.
     clang::QualType CloneType(clang::QualType T);
 
+    virtual DerivativeAndOverload Derive() {return {};};
+
     /// Computes effective derivative operands. It should be used when operands
     /// might be of pointer types.
     ///
