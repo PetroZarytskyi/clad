@@ -25,6 +25,7 @@
 #include "clad/Differentiator/CladConfig.h"
 #include "clad/Differentiator/CladUtils.h"
 #include "clad/Differentiator/Compatibility.h"
+#include "clad/Differentiator/DerivativeBuilder.h"
 
 #include <algorithm>
 #include <string>
@@ -32,8 +33,6 @@
 using namespace clang;
 
 namespace clad {
-  static SourceLocation noLoc;
-
   /// Returns `DeclRefExpr` node corresponding to the function, method or
   /// functor argument which is to be differentiated.
   ///
@@ -276,9 +275,9 @@ namespace clad {
 
   DiffCollector::DiffCollector(DeclGroupRef DGR, DiffInterval& Interval,
                                clad::DynamicGraph<DiffRequest>& requestGraph,
-                               clang::Sema& S, RequestOptions& opts)
+                               clang::Sema& S, RequestOptions& opts, DerivativeBuilder* builder)
       : m_Interval(Interval), m_DiffRequestGraph(requestGraph), m_Sema(S),
-        m_Options(opts) {
+        m_Options(opts), m_Builder(builder) {
 
     if (Interval.empty())
       return;
@@ -912,54 +911,6 @@ namespace clad {
     return false;
   }
 
-  static bool HasCustomDerivativeForDiffReq(Sema& S, const DiffRequest& R) {
-    NamespaceDecl* cladNS = utils::LookupNSD(S, "clad", /*shouldExist=*/true);
-    NamespaceDecl* customDerNS = utils::LookupNSD(
-        S, "custom_derivatives", /*shouldExist=*/false, cladNS);
-    if (!customDerNS)
-      return false;
-
-    const Expr* callSite = R.CallContext;
-    const DeclContext* originalFnDC = nullptr;
-    // Check if the callSite is not associated with a shadow declaration.
-    if (const auto* ME = dyn_cast<CXXMemberCallExpr>(callSite)) {
-      originalFnDC = ME->getMethodDecl()->getParent();
-    } else if (const auto* CE = dyn_cast<CallExpr>(callSite)) {
-      const Expr* Callee = CE->getCallee()->IgnoreParenCasts();
-      if (const auto* DRE = dyn_cast<DeclRefExpr>(Callee))
-        originalFnDC = DRE->getFoundDecl()->getDeclContext();
-      else if (const auto* MemberE = dyn_cast<MemberExpr>(Callee))
-        originalFnDC = MemberE->getFoundDecl().getDecl()->getDeclContext();
-    } else if (const auto* CtorExpr = dyn_cast<CXXConstructExpr>(callSite)) {
-      originalFnDC = CtorExpr->getConstructor()->getDeclContext();
-    }
-
-    DeclContext* DC = customDerNS;
-
-    if (isa<RecordDecl>(originalFnDC)) {
-      return true;
-      // FIXME: Re-enable
-      // DC = utils::LookupNSD(S, "class_functions", /*shouldExist=*/false, DC);
-    } else
-      DC = utils::FindDeclContext(S, DC, originalFnDC);
-
-    if (!DC)
-      return false;
-
-    std::string Name = R.BaseFunctionName;
-    if (R.Mode == DiffMode::experimental_pullback && R->getNumParams() > 1)
-      Name += "_pullback";
-    else // if (Mode == DiffMode::experimental_pullback)
-      Name += "_pushforward";
-
-    IdentifierInfo* II = &S.getASTContext().Idents.get(Name);
-    DeclarationNameInfo DNInfo(II, utils::GetValidSLoc(S));
-    LookupResult Found(S, DNInfo, Sema::LookupOrdinaryName);
-    S.LookupQualifiedName(Found, DC);
-
-    return !Found.empty();
-  }
-
   static bool allArgumentsAreLiterals(const CallExpr* CE,
                                       const DiffRequest* request) {
     for (const Expr* A : CE->arguments()) {
@@ -1040,6 +991,12 @@ namespace clad {
       // and the function call in the primal should be used as it is.
       if (clad::utils::hasNonDifferentiableAttribute(E))
         return true;
+
+      if (const CXXMethodDecl* MD = dyn_cast<CXXMethodDecl>(FD)) {
+        const CXXRecordDecl* CD = MD->getParent();
+        if (clad::utils::hasNonDifferentiableAttribute(CD))
+          return true;
+      }
 
       // Don't build propagators for calls that do not contribute in
       // differentiable way to the result.
@@ -1128,7 +1085,7 @@ namespace clad {
     if (request.Function->getDefinition())
       request.Function = request.Function->getDefinition();
 
-    if (!HasCustomDerivativeForDiffReq(m_Sema, request)) {
+    if (!m_Builder->LookupCustomDerivativeDecl(request)) {
       if (m_TopMostReq->EnableVariedAnalysis &&
           m_TopMostReq->Mode == DiffMode::reverse) {
         VariedAnalyzer analyzer(request.Function->getASTContext(),
