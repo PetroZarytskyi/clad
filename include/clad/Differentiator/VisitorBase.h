@@ -634,12 +634,6 @@ namespace clad {
     /// Returns type clad::ConstructorReverseForwTag<T>
     clang::QualType GetCladConstructorReverseForwTagOfType(clang::QualType T);
 
-    /// Builds an overload for the derivative function that has derived params
-    /// for all the arguments of the requested function and it calls the
-    /// original derivative function internally. Used in gradient and jacobian
-    /// modes.
-    clang::FunctionDecl* CreateDerivativeOverload();
-
     virtual clang::QualType
     GetParameterDerivativeType(clang::QualType ParamType) {
       return ParamType;
@@ -655,6 +649,11 @@ namespace clad {
     /// Cloning types is necessary since VariableArrayType
     /// store a pointer to their size expression.
     clang::QualType CloneType(clang::QualType T);
+    /// Builds an overload for the derivative function that has derived params
+    /// for all the arguments of the requested function and it calls the
+    /// original derivative function internally. Used in gradient and jacobian
+    /// modes.
+    clang::FunctionDecl* CreateDerivativeOverload(clang::FunctionDecl* derivative = nullptr);
 
     /// Initiates the differentiation process.
     /// Returns the derivative and its overload, if any.
