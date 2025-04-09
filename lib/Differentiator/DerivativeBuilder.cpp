@@ -354,6 +354,94 @@ static void registerDerivative(Decl* D, Sema& S, const DiffRequest& R) {
     return nullptr;
   }
 
+  static FunctionDecl* matchTemplate(clang::Sema &S, clang::FunctionTemplateDecl *Template, QualType DerivativeType) {
+    clang::FunctionDecl *Specialization = nullptr;
+    clang::sema::TemplateDeductionInfo Info(noLoc);
+    clang::TemplateArgumentListInfo ExplicitTemplateArgs;
+    S.DeduceTemplateArguments(Template, &ExplicitTemplateArgs, DerivativeType, Specialization, Info);
+    return Specialization;
+  }
+
+  bool DerivativeBuilder::LookupCustomDerivativeDecl(const DiffRequest& request) {
+    // TODO: Don't perform the lookup twice, keep for now
+    auto DFI = m_DFC.Find(request);
+    if (DFI.IsValid())
+      return true;
+    NamespaceDecl* cladNS = utils::LookupNSD(m_Sema, "clad", /*shouldExist=*/true);
+    NamespaceDecl* customDerNS = utils::LookupNSD(
+        m_Sema, "custom_derivatives", /*shouldExist=*/false, cladNS);
+    if (!customDerNS)
+      return false;
+
+    const Expr* callSite = request.CallContext;
+    assert(callSite && "Called lookup without CallContext");
+
+    const DeclContext* originalFnDC = nullptr;
+    // Check if the callSite is not associated with a shadow declaration.
+    if (const auto* ME = dyn_cast<CXXMemberCallExpr>(callSite)) {
+      originalFnDC = ME->getMethodDecl()->getParent();
+    } else if (const auto* CE = dyn_cast<CallExpr>(callSite)) {
+      const Expr* Callee = CE->getCallee()->IgnoreParenCasts();
+      if (const auto* DRE = dyn_cast<DeclRefExpr>(Callee))
+        originalFnDC = DRE->getFoundDecl()->getDeclContext();
+      else if (const auto* MemberE = dyn_cast<MemberExpr>(Callee))
+        originalFnDC = MemberE->getFoundDecl().getDecl()->getDeclContext();
+    } else if (const auto* CtorExpr = dyn_cast<CXXConstructExpr>(callSite)) {
+      originalFnDC = CtorExpr->getConstructor()->getDeclContext();
+    }
+
+    DeclContext* DC = customDerNS;
+
+    if (isa<RecordDecl>(originalFnDC)) {
+      return true;
+      // FIXME: Re-enable
+      // DC = utils::LookupNSD(m_Sema, "class_functions", /*shouldExist=*/false, DC);
+    } else
+      DC = utils::FindDeclContext(m_Sema, DC, originalFnDC);
+
+    if (!DC)
+      return false;
+
+    assert(request.Mode!=DiffMode::unknown && "Called lookup without specified DiffMode");
+    std::string Name = request.BaseFunctionName + "_" + DiffModeToString(request.Mode);
+    std::unique_ptr<VisitorBase> V = BuildVisitor(request);
+    QualType DerivativeType = V->GetDerivativeType();
+
+    IdentifierInfo* II = &m_Sema.getASTContext().Idents.get(Name);
+    DeclarationNameInfo DNInfo(II, utils::GetValidSLoc(m_Sema));
+    LookupResult Found(m_Sema, DNInfo, Sema::LookupOrdinaryName);
+    m_Sema.LookupQualifiedName(Found, DC);
+
+    FunctionDecl* result = nullptr;
+    for (NamedDecl* candidate : Found) {
+      if (auto* usingShadow = dyn_cast<UsingShadowDecl>(candidate))
+        candidate = usingShadow->getTargetDecl();
+      if (auto* FTD = dyn_cast<FunctionTemplateDecl>(candidate)) {
+        if (FunctionDecl* spec = matchTemplate(m_Sema, FTD, DerivativeType)) {
+          result = spec;
+          break;
+        }
+      } else if (auto* FD = dyn_cast<FunctionDecl>(candidate)) {
+        if (utils::SameCanonicalType(FD->getType(), DerivativeType)) {
+          result = FD;
+          break;
+        }
+      }
+    }
+    if (result) {
+      // Overload found. Add the derivative in derivative function collector.
+      FunctionDecl* overload = nullptr;
+      // Create an overload if required.
+      if (request.Mode == DiffMode::jacobian ||
+          request.Mode == DiffMode::reverse)
+        overload = V->CreateDerivativeOverload(result);
+      m_DFC.Add(DerivedFnInfo(request, result, overload));
+      return true;
+    }
+
+    return false;
+  }
+
   Expr* DerivativeBuilder::BuildCallToCustomDerivativeOrNumericalDiff(
       const std::string& Name, llvm::SmallVectorImpl<Expr*>& CallArgs,
       clang::Scope* S, const clang::Expr* callSite,

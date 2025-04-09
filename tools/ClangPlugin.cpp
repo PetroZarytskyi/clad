@@ -135,7 +135,7 @@ namespace clad {
       RequestOptions opts{};
       SetRequestOptions(opts);
       DiffCollector collector(DGR, CladEnabledRange, m_DiffRequestGraph, S,
-                              opts);
+                              opts, m_DerivativeBuilder.get());
 
 #if CLANG_VERSION_MAJOR > 16
       for (DiffRequest& request : m_DiffRequestGraph.getNodes()) {

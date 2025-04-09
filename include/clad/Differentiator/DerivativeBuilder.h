@@ -194,6 +194,13 @@ namespace clad {
     /// context.
     ///
     DerivativeAndOverload Derive(const DiffRequest& request);
+
+    /// Looks up if the user has defined a custom derivative for the given
+    /// derivative function. If found, it is automatically attached to the
+    /// request in derived function collector.
+    /// \param[in] request The request for the derivative to lookup.
+    /// \returns true if a custom derivative was found, false otherwise
+    bool LookupCustomDerivativeDecl(const DiffRequest& request);
     /// Find the derived function if present in the DerivedFnCollector.
     ///
     /// \param[in] request The request to find the derived function.
