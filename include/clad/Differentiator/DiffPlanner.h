@@ -177,6 +177,8 @@ public:
     bool EnableVariedAnalysis = false;
   };
 
+  class DerivativeBuilder;
+
   class DiffCollector: public clang::RecursiveASTVisitor<DiffCollector> {
     /// The source interval where clad was activated.
     ///
@@ -200,10 +202,12 @@ public:
 
     bool m_IsTraversingTopLevelDecl = true;
 
+    DerivativeBuilder* m_Builder;
+
   public:
     DiffCollector(clang::DeclGroupRef DGR, DiffInterval& Interval,
                   clad::DynamicGraph<DiffRequest>& requestGraph, clang::Sema& S,
-                  RequestOptions& opts);
+                  RequestOptions& opts, DerivativeBuilder* builder);
     bool VisitCallExpr(clang::CallExpr* E);
     bool VisitDeclRefExpr(clang::DeclRefExpr* DRE);
     bool TraverseFunctionDeclOnce(const clang::FunctionDecl* FD) {
