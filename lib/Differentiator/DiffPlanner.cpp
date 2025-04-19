@@ -312,27 +312,9 @@ DeclRefExpr* getArgFunction(CallExpr* call, Sema& SemaRef) {
   void DiffRequest::UpdateDiffParamsInfo(Sema& semaRef) {
     // Diff info for pullbacks is generated automatically,
     // its parameters are not provided by the user.
-    if (Mode == DiffMode::experimental_pullback) {
-      // Might need to update DVI args, as they may be pointing to the
-      // declaration parameters, not the definition parameters.
-      if (!Function->getPreviousDecl())
-        // If the function was never declared before, we can safely assume
-        // that the parameters are correctly referring to the definition ones.
-        return;
-      const FunctionDecl* FD = Function->getPreviousDecl();
-      for (size_t i = 0, e = DVI.size(), paramIdx = 0;
-           i < e && paramIdx < FD->getNumParams(); ++i) {
-        const auto* param = DVI[i].param;
-        while (paramIdx < FD->getNumParams() &&
-               FD->getParamDecl(paramIdx) != param) {
-            ++paramIdx;
-        }
-        if (paramIdx != FD->getNumParams())
-            // Update the parameter to point to the definition parameter.
-            DVI[i].param = Function->getParamDecl(paramIdx);
-      }
+    if (Mode == DiffMode::experimental_pullback)
       return;
-    }
+
     DVI.clear();
     auto& C = semaRef.getASTContext();
     const Expr* diffArgs = Args;
@@ -938,9 +920,11 @@ DeclRefExpr* getArgFunction(CallExpr* call, Sema& SemaRef) {
     clang::FunctionDecl* Specialization = nullptr;
     clang::sema::TemplateDeductionInfo Info(noLoc);
     clang::TemplateArgumentListInfo ExplicitTemplateArgs;
-    S.DeduceTemplateArguments(Template, &ExplicitTemplateArgs, DerivativeType,
-                              Specialization, Info);
-    return Specialization;
+    auto R = S.DeduceTemplateArguments(Template, &ExplicitTemplateArgs,
+                                       DerivativeType, Specialization, Info);
+    if (R == clad_compat::CLAD_COMPAT_TemplateSuccess)
+      return Specialization;
+    return nullptr;
   }
 
   bool DiffCollector::LookupCustomDerivativeDecl(const DiffRequest& request) {
