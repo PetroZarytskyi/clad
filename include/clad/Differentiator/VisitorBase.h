@@ -657,7 +657,11 @@ namespace clad {
     /// Returns the derivative and its overload, if any.
     virtual DerivativeAndOverload Derive() = 0;
 
-    clang::QualType GetDerivativeType();
+    /// Builds the QualType of the derivative to be generated.
+    ///
+    /// \param[in] moveBaseToParams If true, turns member functions into regular functions
+    /// by moving the base to the parameters.
+    clang::QualType GetDerivativeType(bool moveBaseToParams = false);
 
     /// Computes effective derivative operands. It should be used when operands
     /// might be of pointer types.

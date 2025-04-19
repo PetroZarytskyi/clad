@@ -341,7 +341,7 @@ static void registerDerivative(Decl* D, Sema& S, const DiffRequest& R) {
     assert(request.Mode!=DiffMode::unknown && "Called lookup without specified DiffMode");
     std::string Name = request.BaseFunctionName + "_" + DiffModeToString(request.Mode);
     std::unique_ptr<VisitorBase> V = BuildVisitor(request);
-    QualType DerivativeType = V->GetDerivativeType();
+    QualType DerivativeType = V->GetDerivativeType(/*moveBaseToParams=*/true);
 
     IdentifierInfo* II = &m_Sema.getASTContext().Idents.get(Name);
     DeclarationNameInfo DNInfo(II, utils::GetValidSLoc(m_Sema));

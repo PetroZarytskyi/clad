@@ -1088,7 +1088,7 @@ namespace clad {
 
   VisitorBase::~VisitorBase() = default;
 
-  QualType VisitorBase::GetDerivativeType() {
+  QualType VisitorBase::GetDerivativeType(bool moveBaseToParams) {
     const FunctionDecl* FD = m_DiffReq.Function;
 
     if (m_DiffReq.Mode == DiffMode::forward)
@@ -1128,12 +1128,21 @@ namespace clad {
         FnTypes.push_back(argTy);
     }
 
+    QualType thisTy;
     if (const auto* MD = dyn_cast<CXXMethodDecl>(FD)) {
       const CXXRecordDecl* RD = MD->getParent();
       if (MD->isInstance() && !RD->isLambda() &&
           m_DiffReq.Mode != DiffMode::jacobian) {
-        QualType thisTy = GetParameterDerivativeType(MD->getThisType());
-        FnTypes.push_back(thisTy);
+        thisTy = MD->getThisType();
+        QualType dthisTy = GetParameterDerivativeType(thisTy);
+        FnTypes.push_back(dthisTy);
+        if (MD->isConst()) {
+          QualType constObjTy = m_Context.getConstType(thisTy->getPointeeType());
+          thisTy = m_Context.getPointerType(constObjTy);
+        }
+        // thisTy->dump();
+        // m_Context.getConstType(thisTy).dump();
+        // m_Context.getPointerType(m_Context.getConstType(thisTy->getPointeeType())).dump();
       }
     }
 
@@ -1156,6 +1165,11 @@ namespace clad {
             FnTypes.push_back(GetParameterDerivativeType(PVDTy));
       } else if (utils::IsDifferentiableType(PVDTy))
         FnTypes.push_back(GetParameterDerivativeType(PVDTy));
+    }
+
+    if (moveBaseToParams && !thisTy.isNull()) {
+      FnTypes.insert(FnTypes.begin(), thisTy);
+      EPI.TypeQuals.removeConst();
     }
 
     if (m_ExternalSource)
