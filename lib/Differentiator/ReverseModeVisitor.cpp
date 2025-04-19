@@ -1840,34 +1840,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
                                     static_cast<int>(isMethodOperatorCall),
                                 pullback);
 
-      // Try to find it in builtin derivatives.
-      // FIXME: resort to ComputeDerivativeName somehow.
-      std::string customPullback =
-          clad::utils::ComputeEffectiveFnName(FD) + "_pullback";
-      // Add the indexes of the global args to the custom pullback name
-      for (auto index : m_DiffReq.CUDAGlobalArgsIndexes)
-        customPullback += "_" + std::to_string(index);
-
-      if (Expr* Base = baseDiff.getExpr())
-        pullbackCallArgs.insert(pullbackCallArgs.begin(), Base);
-
-      OverloadedDerivedFn =
-          m_Builder.BuildCallToCustomDerivativeOrNumericalDiff(
-              customPullback, pullbackCallArgs, getCurrentScope(), CE,
-              /*forCustomDerv=*/true, /*namespaceShouldExist=*/true,
-              CUDAExecConfig);
-      if (baseDiff.getExpr())
-        pullbackCallArgs.erase(pullbackCallArgs.begin());
-    }
-
-    // Derivative was not found, check if it is a recursive call
-    if (!OverloadedDerivedFn) {
-      if (m_ExternalSource)
-        m_ExternalSource->ActBeforeDifferentiatingCallExpr(
-            pullbackCallArgs, PreCallStmts, dfdx());
-
-      // Overloaded derivative was not found, request the CladPlugin to
-      // derive the called function.
+      // Build the DiffRequest
       DiffRequest pullbackRequest{};
       pullbackRequest.Function = FD;
 
@@ -1894,13 +1867,38 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       }
 
       FunctionDecl* pullbackFD = nullptr;
-      if (m_ExternalSource)
-        // FIXME: Error estimation currently uses singleton objects -
-        // m_ErrorEstHandler and m_EstModel, which is cleared after each
-        // error_estimate request. This requires the pullback to be derived
-        // at the same time to access the singleton objects.
-        pullbackFD = plugin::ProcessDiffRequest(m_CladPlugin, pullbackRequest);
-      else
+
+      // FIXME: Error estimation currently uses singleton objects -
+      // m_ErrorEstHandler and m_EstModel, which is cleared after each
+      // error_estimate request. This requires the pullback to be derived
+      // at the same time to access the singleton objects.
+      // No call context corresponds to second derivatives used in hessians,
+      // which aren't scheduled statically yet.
+      if (m_ExternalSource || !m_DiffReq.CallContext) {
+        // Try to find it in builtin derivatives.
+        std::string customPullback = pullbackRequest.ComputeDerivativeName();
+        if (Expr* Base = baseDiff.getExpr())
+          pullbackCallArgs.insert(pullbackCallArgs.begin(), Base);
+        OverloadedDerivedFn =
+            m_Builder.BuildCallToCustomDerivativeOrNumericalDiff(
+                customPullback, pullbackCallArgs, getCurrentScope(), CE,
+                /*forCustomDerv=*/true, /*namespaceShouldExist=*/true,
+                CUDAExecConfig);
+        if (auto* foundCE = cast_or_null<CallExpr>(OverloadedDerivedFn))
+          pullbackFD = foundCE->getDirectCallee();
+        if (baseDiff.getExpr())
+          pullbackCallArgs.erase(pullbackCallArgs.begin());
+
+        // Derivative was not found, request differentiation
+        if (!pullbackFD) {
+            if (m_ExternalSource) {
+              m_ExternalSource->ActBeforeDifferentiatingCallExpr(
+                  pullbackCallArgs, PreCallStmts, dfdx());
+              pullbackFD = plugin::ProcessDiffRequest(m_CladPlugin, pullbackRequest);
+            } else 
+              pullbackFD = m_Builder.HandleNestedDiffRequest(pullbackRequest);
+        }
+      } else
         pullbackFD = m_Builder.HandleNestedDiffRequest(pullbackRequest);
 
       if (pullbackFD) {
