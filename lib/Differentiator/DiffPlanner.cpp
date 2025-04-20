@@ -1014,11 +1014,17 @@ namespace clad {
         return true;
 
       request.Function = FD;
+
+      bool usePushforwardInRevMode =
+        m_TopMostReq->Mode == DiffMode::reverse &&
+        FD->getNumParams() == 1 &&
+        !utils::HasAnyReferenceOrPointerArgument(FD) && !isa<CXXMethodDecl>(FD);
       // FIXME: hessians require second derivatives,
       // i.e. apart from the pushforward, we also need
       // to schedule pushforward_pullback.
       if (m_TopMostReq->Mode == DiffMode::forward ||
-          m_TopMostReq->Mode == DiffMode::hessian)
+          m_TopMostReq->Mode == DiffMode::hessian ||
+          usePushforwardInRevMode)
         request.Mode = DiffMode::experimental_pushforward;
       else if (m_TopMostReq->Mode == DiffMode::reverse)
         request.Mode = DiffMode::experimental_pullback;
