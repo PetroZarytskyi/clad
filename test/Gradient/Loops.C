@@ -2960,7 +2960,7 @@ double fn36(double x, double y){
 //CHECK-NEXT:                             sum = clad::pop(_t2);
 //CHECK-NEXT:                             double _r_d0 = _d_sum;
 //CHECK-NEXT:                             double _r0 = 0.;
-//CHECK-NEXT:                             _r0 += _r_d0 * x * clad::custom_derivatives::sin_pushforward(i, 1.).pushforward;
+//CHECK-NEXT:                             _r0 += _r_d0 * x * clad::custom_derivatives::std::sin_pushforward(i, 1.).pushforward;
 //CHECK-NEXT:                             _d_i += _r0;
 //CHECK-NEXT:                             *_d_x += clad::back(_t3) * _r_d0;
 //CHECK-NEXT:                             clad::pop(_t3);
