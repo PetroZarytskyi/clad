@@ -1118,24 +1118,6 @@ StmtDiff BaseForwardModeVisitor::VisitCallExpr(const CallExpr* CE) {
         customPushforward, customDerivativeArgs, getCurrentScope(), CE,
         /*forCustomDerv=*/true, /*namespaceShouldExist=*/true, CUDAExecConfig);
   }
-  if (!isLambda) {
-    // Check if it is a recursive call.
-    if (!callDiff && (FD == m_DiffReq.Function) &&
-        m_DiffReq.Mode == GetPushForwardMode()) {
-      // The differentiated function is called recursively.
-      Expr* derivativeRef =
-          m_Sema
-              .BuildDeclarationNameExpr(
-                  CXXScopeSpec(), m_Derivative->getNameInfo(), m_Derivative)
-              .get();
-      callDiff =
-          m_Sema
-              .ActOnCallExpr(m_Sema.getScopeForContext(m_Sema.CurContext),
-                             derivativeRef, validLoc, pushforwardFnArgs,
-                             validLoc, CUDAExecConfig)
-              .get();
-    }
-  }
 
   // If all arguments are constant literals, then this does not contribute to
   // the gradient.
