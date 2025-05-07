@@ -1870,7 +1870,8 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     // at the same time to access the singleton objects.
     // No call context corresponds to second derivatives used in hessians,
     // which aren't scheduled statically yet.
-    if (m_ExternalSource || !m_DiffReq.CallContext || hasDynamicNonDiffParams) {
+    if (m_ExternalSource || !m_DiffReq.CallContext || hasDynamicNonDiffParams ||
+        FD->getNameAsString() == "cudaMemcpy") {
       // Try to find it in builtin derivatives.
       std::string customPullback = pullbackRequest.ComputeDerivativeName();
       OverloadedDerivedFn =
