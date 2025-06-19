@@ -1715,10 +1715,10 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
           llvm::SmallVector<Expr*, 4> cudaMemcpyArgs = {
               BuildOp(UO_AddrOf, dArgRef), BuildDeclRef(dArgDeclCUDA),
               sizeLiteral, deviceToHostExpr};
-          PostCallStmts.push_back(
-              GetFunctionCall("cudaMemcpy", "", cudaMemcpyArgs));
+          addToCurrentBlock(
+              GetFunctionCall("cudaMemcpy", "", cudaMemcpyArgs), direction::reverse);
           llvm::SmallVector<Expr*, 3> freeArgs = {BuildDeclRef(dArgDeclCUDA)};
-          PostCallStmts.push_back(GetFunctionCall("cudaFree", "", freeArgs));
+          addToCurrentBlock(GetFunctionCall("cudaFree", "", freeArgs), direction::reverse);
 
           // Update arg to be passed to pullback call
           dArgRef = BuildDeclRef(dArgDeclCUDA);
