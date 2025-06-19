@@ -1502,6 +1502,144 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     return StmtDiff(Clone(FL));
   }
 
+  StmtDiff ReverseModeVisitor::DifferentiateCallArg(
+      const Expr* arg, const ParmVarDecl* param,
+      llvm::SmallVectorImpl<clang::Stmt*>& PreCallStmts, bool isCUDAKernel) {
+    StmtDiff result;
+    StmtDiff argDiff{};
+    // We do not need to create result arg for arguments passed by reference
+    // because the derivatives of arguments passed by reference are directly
+    // modified by the derived callee function.
+    if (utils::IsReferenceOrPointerArg(arg)) {
+      argDiff = Visit(arg);
+      result.updateStmtDx(argDiff.getExpr_dx());
+    } else if (!clad::utils::hasNonDifferentiableAttribute(arg)) {
+      // Create temporary variables corresponding to derivative of each
+      // argument, so that they can be referred to when arguments is visited.
+      // Variables will be initialized later after arguments is visited. This
+      // is done to reduce cloning complexity and only clone once. The type is
+      // same as the call expression as it is the type used to declare the
+      // _gradX array
+      QualType dArgTy = utils::getNonConstType(arg->getType(), m_Sema);
+      bool shouldCopyInitialize = false;
+      if (const CXXRecordDecl* CRD = dArgTy->getAsCXXRecordDecl())
+        shouldCopyInitialize = utils::isCopyable(CRD);
+      Expr* rInit = getZeroInit(dArgTy);
+      // Temporarily initialize the object with `*nullptr` to avoid
+      // a potential error because of non-existing default constructor.
+      if (shouldCopyInitialize) {
+        QualType ptrType =
+            m_Context.getPointerType(dArgTy.getUnqualifiedType());
+        Expr* dummy = getZeroInit(ptrType);
+        rInit = BuildOp(UO_Deref, dummy);
+      }
+      VarDecl* dArgDecl = BuildVarDecl(dArgTy, "_r", rInit);
+      PreCallStmts.push_back(BuildDeclStmt(dArgDecl));
+      DeclRefExpr* dArgRef = BuildDeclRef(dArgDecl);
+      if (isCUDAKernel) {
+        // Create variables to be allocated and initialized on the device, and
+        // then be passed to the kernel pullback.
+        //
+        // These need to be pointers because cudaMalloc expects a
+        // pointer-to-pointer as an arg.
+        // The memory addresses they point to are initialized to zero through
+        // cudaMemset.
+        // After the pullback call, their values will be copied back to the
+        // corresponding _r variables on the host and the device variables
+        // will be freed.
+        //
+        // Example of the generated code:
+        //
+        // double _r0 = 0;
+        // double* _r1 = nullptr;
+        // cudaMalloc(&_r1, sizeof(double));
+        // cudaMemset(_r1, 0, 8);
+        // kernel_pullback<<<...>>>(..., _r1);
+        // cudaMemcpy(&_r0, _r1, 8, cudaMemcpyDeviceToHost);
+        // cudaFree(_r1);
+
+        // Create a literal for the size of the type
+        Expr* sizeLiteral = ConstantFolder::synthesizeLiteral(
+            m_Context.IntTy, m_Context, m_Context.getTypeSize(dArgTy) / 8);
+        dArgTy = m_Context.getPointerType(dArgTy);
+        VarDecl* dArgDeclCUDA = BuildVarDecl(dArgTy, "_r", getZeroInit(dArgTy));
+
+        // Create the cudaMemcpyDeviceToHost argument
+        LookupResult deviceToHostResult =
+            utils::LookupQualifiedName("cudaMemcpyDeviceToHost", m_Sema);
+        if (deviceToHostResult.empty()) {
+          diag(DiagnosticsEngine::Error, arg->getEndLoc(),
+               "Failed to create cudaMemcpy call; cudaMemcpyDeviceToHost not "
+               "found. Creating kernel pullback aborted.");
+          return Visit(arg);
+        }
+        CXXScopeSpec SS;
+        Expr* deviceToHostExpr =
+            m_Sema
+                .BuildDeclarationNameExpr(SS, deviceToHostResult,
+                                          /*ADL=*/false)
+                .get();
+
+        // Add calls to cudaMalloc, cudaMemset, cudaMemcpy, and cudaFree
+        PreCallStmts.push_back(BuildDeclStmt(dArgDeclCUDA));
+        Expr* refOp = BuildOp(UO_AddrOf, BuildDeclRef(dArgDeclCUDA));
+        llvm::SmallVector<Expr*, 3> mallocArgs = {refOp, sizeLiteral};
+        PreCallStmts.push_back(GetFunctionCall("cudaMalloc", "", mallocArgs));
+        llvm::SmallVector<Expr*, 3> memsetArgs = {BuildDeclRef(dArgDeclCUDA),
+                                                  getZeroInit(m_Context.IntTy),
+                                                  sizeLiteral};
+        PreCallStmts.push_back(GetFunctionCall("cudaMemset", "", memsetArgs));
+        llvm::SmallVector<Expr*, 4> cudaMemcpyArgs = {
+            BuildOp(UO_AddrOf, dArgRef), BuildDeclRef(dArgDeclCUDA),
+            sizeLiteral, deviceToHostExpr};
+        addToCurrentBlock(GetFunctionCall("cudaMemcpy", "", cudaMemcpyArgs),
+                          direction::reverse);
+        llvm::SmallVector<Expr*, 3> freeArgs = {BuildDeclRef(dArgDeclCUDA)};
+        addToCurrentBlock(GetFunctionCall("cudaFree", "", freeArgs),
+                          direction::reverse);
+
+        // Update arg to be passed to pullback call
+        dArgRef = BuildDeclRef(dArgDeclCUDA);
+      }
+      result.updateStmtDx(dArgRef);
+      // Visit using uninitialized reference.
+      argDiff = Visit(arg, BuildDeclRef(dArgDecl));
+      if (shouldCopyInitialize) {
+        if (Expr* dInit = argDiff.getExpr_dx())
+          SetDeclInit(dArgDecl, dInit);
+        else
+          SetDeclInit(dArgDecl, getZeroInit(dArgTy));
+      }
+    } else {
+      argDiff = Visit(arg);
+    }
+
+    // Save cloned arg in a "global" variable, so that it is accessible from
+    // the reverse pass.
+    // For example:
+    // ```
+    // // forward pass
+    // _t0 = a;
+    // modify(a); // a is modified so we store it
+    //
+    // // reverse pass
+    // a = _t0;
+    // modify_pullback(a, ...); // the pullback should always keep `a` intact
+    // ```
+    // FIXME: Handle storing data passed through pointers and structures.
+    // FIXME: Improve TBR to handle these stores.
+    QualType paramTy = param->getType();
+    bool passByRef = paramTy->isLValueReferenceType() &&
+                     !paramTy.getNonReferenceType().isConstQualified();
+    if (passByRef && m_DiffReq.shouldBeRecorded(arg)) {
+      StmtDiff pushPop = StoreAndRestore(argDiff.getExpr());
+      addToCurrentBlock(pushPop.getStmt());
+      PreCallStmts.push_back(pushPop.getStmt_dx());
+    }
+    result.updateStmt(argDiff.getExpr());
+    return result;
+  }
+
   StmtDiff ReverseModeVisitor::VisitCallExpr(const CallExpr* CE) {
     const FunctionDecl* FD = CE->getDirectCallee();
     if (!FD) {
@@ -1716,142 +1854,13 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       const Expr* arg = CE->getArg(i);
       const auto* PVD = FD->getParamDecl(
           i - static_cast<unsigned long>(isMethodOperatorCall));
-      StmtDiff argDiff{};
-      // We do not need to create result arg for arguments passed by reference
-      // because the derivatives of arguments passed by reference are directly
-      // modified by the derived callee function.
-      if (utils::IsReferenceOrPointerArg(arg)) {
-        argDiff = Visit(arg);
-        CallArgDx.push_back(argDiff.getExpr_dx());
-      } else if (!clad::utils::hasNonDifferentiableAttribute(arg)) {
-        // Create temporary variables corresponding to derivative of each
-        // argument, so that they can be referred to when arguments is visited.
-        // Variables will be initialized later after arguments is visited. This
-        // is done to reduce cloning complexity and only clone once. The type is
-        // same as the call expression as it is the type used to declare the
-        // _gradX array
-        QualType dArgTy = utils::getNonConstType(arg->getType(), m_Sema);
-        bool shouldCopyInitialize = false;
-        if (const CXXRecordDecl* CRD = dArgTy->getAsCXXRecordDecl())
-          shouldCopyInitialize = utils::isCopyable(CRD);
-        Expr* rInit = getZeroInit(dArgTy);
-        // Temporarily initialize the object with `*nullptr` to avoid
-        // a potential error because of non-existing default constructor.
-        if (shouldCopyInitialize) {
-          QualType ptrType =
-              m_Context.getPointerType(dArgTy.getUnqualifiedType());
-          Expr* dummy = getZeroInit(ptrType);
-          rInit = BuildOp(UO_Deref, dummy);
-        }
-        VarDecl* dArgDecl = BuildVarDecl(dArgTy, "_r", rInit);
-        PreCallStmts.push_back(BuildDeclStmt(dArgDecl));
-        DeclRefExpr* dArgRef = BuildDeclRef(dArgDecl);
-        if (isa<CUDAKernelCallExpr>(CE)) {
-          // Create variables to be allocated and initialized on the device, and
-          // then be passed to the kernel pullback.
-          //
-          // These need to be pointers because cudaMalloc expects a
-          // pointer-to-pointer as an arg.
-          // The memory addresses they point to are initialized to zero through
-          // cudaMemset.
-          // After the pullback call, their values will be copied back to the
-          // corresponding _r variables on the host and the device variables
-          // will be freed.
-          //
-          // Example of the generated code:
-          //
-          // double _r0 = 0;
-          // double* _r1 = nullptr;
-          // cudaMalloc(&_r1, sizeof(double));
-          // cudaMemset(_r1, 0, 8);
-          // kernel_pullback<<<...>>>(..., _r1);
-          // cudaMemcpy(&_r0, _r1, 8, cudaMemcpyDeviceToHost);
-          // cudaFree(_r1);
-
-          // Create a literal for the size of the type
-          Expr* sizeLiteral = ConstantFolder::synthesizeLiteral(
-              m_Context.IntTy, m_Context, m_Context.getTypeSize(dArgTy) / 8);
-          dArgTy = m_Context.getPointerType(dArgTy);
-          VarDecl* dArgDeclCUDA =
-              BuildVarDecl(dArgTy, "_r", getZeroInit(dArgTy));
-
-          // Create the cudaMemcpyDeviceToHost argument
-          LookupResult deviceToHostResult =
-              utils::LookupQualifiedName("cudaMemcpyDeviceToHost", m_Sema);
-          if (deviceToHostResult.empty()) {
-            diag(DiagnosticsEngine::Error, CE->getEndLoc(),
-                 "Failed to create cudaMemcpy call; cudaMemcpyDeviceToHost not "
-                 "found. Creating kernel pullback aborted.");
-            return StmtDiff(Clone(CE));
-          }
-          CXXScopeSpec SS;
-          Expr* deviceToHostExpr =
-              m_Sema
-                  .BuildDeclarationNameExpr(SS, deviceToHostResult,
-                                            /*ADL=*/false)
-                  .get();
-
-          // Add calls to cudaMalloc, cudaMemset, cudaMemcpy, and cudaFree
-          PreCallStmts.push_back(BuildDeclStmt(dArgDeclCUDA));
-          Expr* refOp = BuildOp(UO_AddrOf, BuildDeclRef(dArgDeclCUDA));
-          llvm::SmallVector<Expr*, 3> mallocArgs = {refOp, sizeLiteral};
-          PreCallStmts.push_back(GetFunctionCall("cudaMalloc", "", mallocArgs));
-          llvm::SmallVector<Expr*, 3> memsetArgs = {
-              BuildDeclRef(dArgDeclCUDA), getZeroInit(m_Context.IntTy),
-              sizeLiteral};
-          PreCallStmts.push_back(GetFunctionCall("cudaMemset", "", memsetArgs));
-          llvm::SmallVector<Expr*, 4> cudaMemcpyArgs = {
-              BuildOp(UO_AddrOf, dArgRef), BuildDeclRef(dArgDeclCUDA),
-              sizeLiteral, deviceToHostExpr};
-          addToCurrentBlock(
-              GetFunctionCall("cudaMemcpy", "", cudaMemcpyArgs), direction::reverse);
-          llvm::SmallVector<Expr*, 3> freeArgs = {BuildDeclRef(dArgDeclCUDA)};
-          addToCurrentBlock(GetFunctionCall("cudaFree", "", freeArgs), direction::reverse);
-
-          // Update arg to be passed to pullback call
-          dArgRef = BuildDeclRef(dArgDeclCUDA);
-        }
-        CallArgDx.push_back(dArgRef);
-        // Visit using uninitialized reference.
-        argDiff = Visit(arg, BuildDeclRef(dArgDecl));
-        if (shouldCopyInitialize) {
-          if (Expr* dInit = argDiff.getExpr_dx())
-            SetDeclInit(dArgDecl, dInit);
-          else
-            SetDeclInit(dArgDecl, getZeroInit(dArgTy));
-        }
-      } else {
-        CallArgDx.push_back(nullptr);
-        argDiff = Visit(arg);
-      }
-
-      // Save cloned arg in a "global" variable, so that it is accessible from
-      // the reverse pass.
-      // For example:
-      // ```
-      // // forward pass
-      // _t0 = a;
-      // modify(a); // a is modified so we store it
-      //
-      // // reverse pass
-      // a = _t0;
-      // modify_pullback(a, ...); // the pullback should always keep `a` intact
-      // ```
-      // FIXME: Handle storing data passed through pointers and structures.
-      // FIXME: Improve TBR to handle these stores.
-      QualType paramTy = PVD->getType();
-      bool passByRef = paramTy->isLValueReferenceType() &&
-                       !paramTy.getNonReferenceType().isConstQualified();
-      bool shouldBeRecorded = m_DiffReq.shouldBeRecorded(arg);
-      if (shouldBeRecorded && utils::isMemoryType(paramTy))
-        hasStoredParams = true;
-      if (passByRef && shouldBeRecorded) {
-        StmtDiff pushPop = StoreAndRestore(argDiff.getExpr());
-        addToCurrentBlock(pushPop.getStmt());
-        PreCallStmts.push_back(pushPop.getStmt_dx());
-      }
+      StmtDiff argDiff = DifferentiateCallArg(arg, PVD, PreCallStmts,
+                                              isa<CUDAKernelCallExpr>(CE));
+      CallArgDx.push_back(argDiff.getExpr_dx());
       CallArgs.push_back(argDiff.getExpr());
       DerivedCallArgs.push_back(argDiff.getExpr());
+      if (m_DiffReq.shouldBeRecorded(arg))
+        hasStoredParams = true;
     }
     // Store all the derived call output args (if any)
     llvm::SmallVector<Expr*, 16> DerivedCallOutputArgs{};

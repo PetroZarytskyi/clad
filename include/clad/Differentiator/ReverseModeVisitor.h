@@ -482,6 +482,12 @@ namespace clad {
     /// additionally created Stmts, second is a direct result of call to Visit.
     std::pair<StmtDiff, StmtDiff>
     DifferentiateSingleExpr(const clang::Expr* E, clang::Expr* dfdE = nullptr);
+
+    StmtDiff
+    DifferentiateCallArg(const clang::Expr* arg,
+                         const clang::ParmVarDecl* param,
+                         llvm::SmallVectorImpl<clang::Stmt*>& PreCallStmts,
+                         bool isCUDAKernel = false);
     /// Shorthand for warning on differentiation of unsupported operators
     void unsupportedOpWarn(clang::SourceLocation loc,
                            llvm::ArrayRef<llvm::StringRef> args = {}) {
