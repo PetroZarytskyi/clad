@@ -29,6 +29,7 @@ namespace smallpt {
     constexpr Ray(const Ray& ray) noexcept = default;
     constexpr Ray(Ray&& ray) noexcept = default;
     ~Ray() = default;
+    Ray() = default;
 
     //---------------------------------------------------------------------
     // Assignment Operators

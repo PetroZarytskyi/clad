@@ -10,13 +10,14 @@
 #include <limits>
 
 #pragma endregion
+#define non_differentiable __attribute__((annotate("another_attribute"), annotate("non_differentiable")))
 
 //-----------------------------------------------------------------------------
 // Declarations and Definitions
 //-----------------------------------------------------------------------------
 namespace smallpt {
 
-  class RNG {
+  class non_differentiable RNG {
   public:
     //---------------------------------------------------------------------
     // Constructors and Destructors
@@ -34,16 +35,16 @@ namespace smallpt {
     // Assignment Operators
     //---------------------------------------------------------------------
 
-    RNG& operator=(const RNG& rng) = delete;
+    RNG& operator=(const RNG& rng) = default;
     RNG& operator=(RNG&& rng) = delete;
 
     //---------------------------------------------------------------------
     // Member Methods
     //---------------------------------------------------------------------
 
-    void Seed(uint32_t seed) noexcept { /*m_generator.seed(seed);*/ }
+    non_differentiable void Seed(uint32_t seed) noexcept { /*m_generator.seed(seed);*/ }
 
-    double Uniform() noexcept { return m_distribution(m_generator); }
+    non_differentiable double Uniform() noexcept { return m_distribution(m_generator); }
 
   private:
     //---------------------------------------------------------------------

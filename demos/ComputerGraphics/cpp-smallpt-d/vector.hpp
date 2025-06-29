@@ -33,8 +33,10 @@ namespace smallpt {
     //---------------------------------------------------------------------
     // Constructors and Destructors
     //---------------------------------------------------------------------
+    constexpr Vector3() noexcept
+        : Vector3(0, 0, 0) {}
 
-    constexpr explicit Vector3(double xyz = 0.0) noexcept
+    constexpr explicit Vector3(double xyz) noexcept
         : Vector3(xyz, xyz, xyz) {}
     constexpr Vector3(double x, double y, double z) noexcept
         : m_x(x), m_y(y), m_z(z) {}
@@ -193,7 +195,8 @@ namespace smallpt {
       return std::min(m_x, std::min(m_y, m_z));
     }
     [[nodiscard]] constexpr double Max() const noexcept {
-      return std::max(m_x, std::max(m_y, m_z));
+      const double m = std::max(m_y, m_z);
+      return std::max(m_x, m);
     }
 
     [[nodiscard]] constexpr double Norm2_squared() const noexcept {

@@ -70,8 +70,8 @@ namespace smallpt {
       new Sphere(1e5,  Vector3(50, 1e5, 81.6),         Vector3(),   Vector3(0.75),             Reflection_t::Diffuse),   // Bottom
       new Sphere(1e5,  Vector3(50, -1e5 + 81.6, 81.6), Vector3(),   Vector3(0.75),             Reflection_t::Diffuse),   // Top
       new Sphere(16.5, Vector3(27, 16.5, 47),          Vector3(),   Vector3(0.999),            Reflection_t::Refractive),  // Glass
-//      new Sphere(16.5, Vector3(55, 30, 57),          Vector3(),   Vector3(0.999),            Reflection_t::Refractive),  // Glassr
-//      new Sphere(16.5, Vector3(80, 60, 67),          Vector3(),   Vector3(0.999),            Reflection_t::Refractive),  // Glass
+      new Sphere(16.5, Vector3(55, 30, 57),          Vector3(),   Vector3(0.999),            Reflection_t::Refractive),  // Glassr
+      new Sphere(16.5, Vector3(80, 60, 67),          Vector3(),   Vector3(0.999),            Reflection_t::Refractive),  // Glass
       new Sphere(16.5, Vector3(73, 16.5, 78),          Vector3(),   Vector3(0.999),            Reflection_t::Specular),// Mirror
       new Sphere(600,  Vector3(50, 681.6 - .27, 81.6), Vector3(12), Vector3(),                 Reflection_t::Diffuse)    // Light
   };
@@ -211,7 +211,7 @@ int main(int argc, char* argv[]) {
   const std::uint32_t h = 768;
 
   smallpt::Render(
-    scene, *(&scene + 1) - scene, // Geometry, Lights
+    scene, 9, // Geometry, Lights
     27, 16.5, 47, // Params - Center of one sphere // must be Vector3()
     w, h, nb_samples, 0, // Camera
     new Vector3[w*h], "image.ppm" // Result

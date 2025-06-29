@@ -29,13 +29,13 @@ namespace smallpt {
 
   template <class T>
   [[nodiscard]]
-  constexpr const T& clamp(const T& v, const T& lo, const T& hi) noexcept {
-    return clamp(v, lo, hi, [](const T& a, const T& b) noexcept { return (a < b); });
+  constexpr T clamp(const T& v, const T& lo, const T& hi) noexcept {
+    return (v < lo) ? lo : (hi < v) ? hi : v;
   }
 
   template <class T, class Compare>
   [[nodiscard]]
-  constexpr const T& clamp(const T& v, const T& lo, const T& hi, Compare comp) noexcept {
+  constexpr T clamp(const T& v, const T& lo, const T& hi, Compare comp) noexcept {
     return comp(v, lo) ? lo : comp(hi, v) ? hi : v;
   }
 
@@ -43,5 +43,10 @@ namespace smallpt {
   inline std::uint8_t ToByte(double color, double gamma = 2.2) noexcept {
     const double gcolor = std::pow(color, 1.0 / gamma);
     return static_cast<std::uint8_t>(clamp(255.0 * gcolor, 0.0, 255.0));
+  }
+
+  inline double FromByte(std::uint8_t byte, double gamma = 2.2) noexcept {
+    double gcolor = byte / 255.0;
+    return std::pow(gcolor, gamma);
   }
 } // namespace smallpt

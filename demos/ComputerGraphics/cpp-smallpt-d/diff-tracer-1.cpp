@@ -40,9 +40,9 @@ using namespace smallpt;
 // target, current - represents the input/target and
 // output data/images respectively
 struct Dataset {
-  const std::uint32_t w = 1024u;
-  const std::uint32_t h = 768u;
-  const std::uint32_t nb_samples;
+  std::uint32_t w = 1024u;
+  std::uint32_t h = 768u;
+  std::uint32_t nb_samples;
   Vector3* target;
   Vector3* current;
   double learning_rate = 1e-2;
@@ -59,7 +59,7 @@ struct Dataset {
     target = new Vector3[w*h];
     current = new Vector3[w*h];
     Render(
-      scene, *(&scene + 1) - scene, // Geometry, Lights
+      scene, 11, // Geometry, Lights
       27, 16.5, 47, // Params - Center of one sphere // must be Vector3()
       w, h, nb_samples, 0, // Camera
       target, fileName // Result
@@ -98,25 +98,29 @@ void performStep(double& theta_0, double& theta_1, double& theta_2, Dataset dt, 
 
 // The cost function to minimize using gradient descent
 // theta_x are the parameters to learn; x, y are the inputs and outputs of f
-double cost(double theta_0, double theta_1, double theta_2, Dataset dt) {
+double cost(Dataset dt) {
   const size_t fileNameMaxSize = 4096;
-  char fileName[fileNameMaxSize];
-  snprintf(fileName, fileNameMaxSize, "image-%d.ppm", dt.step++);
+  // char fileName[fileNameMaxSize];
+  //snprintf(fileName, fileNameMaxSize, "image-%d.ppm", dt.step++);
   Render(
-      scene, *(&scene + 1) - scene, // Geometry, Lights
+      scene, 11, // Geometry, Lights
       dt.Vx, dt.Vy, dt.Vz, // Params - Center of one sphere // must be Vector3()
       dt.w, dt.h, dt.nb_samples, 0, // Camera
-      dt.current, fileName // Result
+      dt.current, "cpp-smallpt-d.ppm" // Result
     );
-  for (int i=0; i<=dt.h; i++) {
-    for (int j=0; j<=dt.w; j++) {
-//      sum += 
-    }
-  }
+
+  return ComputePPMDifference("cpp-smallpt-d.ppm", "cpp-smallpt-d_reference.ppm", dt.w, dt.h);
+  // double sum = 0;
+  // for (int i=0; i<=dt.h; i++) {
+  //   for (int j=0; j<=dt.w; j++) {
+  //     double diff = a - b;
+  //     sum += diff * diff;
+  //   }
+  // }
 
 //  double f_x = f(theta_0, theta_1, theta_2, x);
 //  return (f_x - y) * (f_x - y);
-  return 0;
+  // return sum;
 }
 
 double f(double x, double y) {
@@ -138,44 +142,60 @@ double f1(double x[], int cnt) {
 // Function to optimize the cost function of interest
 // theta is the hypothesis parameter list and maxSteps is the maximum steps to
 // perform
-void optimize(double theta[3], Dataset dt, unsigned int maxSteps, double eps) {
-  auto diff = theta;
-  bool hasConverged = false;
-  int currentStep = 0;
+// void optimize(double theta[3], Dataset dt, unsigned int maxSteps, double eps) {
+//   auto diff = theta;
+//   bool hasConverged = false;
+//   int currentStep = 0;
 
-  // Call for Clad to differentiate the cost function specified before
-  auto clad_grad = clad::gradient(cost);
+//   // Call for Clad to differentiate the cost function specified before
+//   auto clad_grad = clad::gradient(cost);
 
-  do {
-    performStep(theta[0], theta[1], theta[2], dt, clad_grad);
+//   do {
+//     performStep(theta[0], theta[1], theta[2], dt, clad_grad);
 
-    std::cout << "Steps #" << currentStep << " Theta 0: " << theta[0]
-              << " Theta 1: " << theta[1] << " Theta 2: " << theta[2] << std::endl;
+//     std::cout << "Steps #" << currentStep << " Theta 0: " << theta[0]
+//               << " Theta 1: " << theta[1] << " Theta 2: " << theta[2] << std::endl;
 
-    hasConverged = std::abs(diff[0] - theta[0]) <= eps &&
-                   std::abs(diff[1] - theta[1]) <= eps &&
-                   std::abs(diff[2] - theta[2]) <= eps;
+//     hasConverged = std::abs(diff[0] - theta[0]) <= eps &&
+//                    std::abs(diff[1] - theta[1]) <= eps &&
+//                    std::abs(diff[2] - theta[2]) <= eps;
 
-    diff = theta;
-  } while (currentStep++ < maxSteps && !hasConverged);
-}
+//     diff = theta;
+//   } while (currentStep++ < maxSteps && !hasConverged);
+// }
 
 int main(int argc, char* argv[]) {
-  const std::uint32_t nb_samples = (2 == argc) ? atoi(argv[1]) / 4 : 1;
+  Dataset dt(1);
+  dt.Vx = 10.0006; dt.Vy = 20.523; dt.Vz = 70.4484;
+  // dt.nb_samples = 1000;
+  std::cout << dt.Vx << "  " << dt.Vx << "  " << dt.Vy << "  " << dt.Vz << "\n";
+  // auto clad_grad = clad::gradient(cost);
+  // Dataset dt;
+  // dt.Vx = 10.0006; dt.Vy = 20.523; dt.Vz = 70.4484;
+  // dt.nb_samples = 1000;
+  // std::cout << dt.Vx << "  " << dt.Vx << "  " << dt.Vy << "  " << dt.Vz << "\n";
+  // auto clad_grad = clad::gradient(cost);
+  Render(
+      scene, 11, // Geometry, Lights
+      dt.Vx, dt.Vy, dt.Vz, // Params - Center of one sphere // must be Vector3()
+      dt.w, dt.h, dt.nb_samples, 0, // Camera
+      dt.current, "cpp-smallpt-d.ppm" // Result
+    );
+//   const std::uint32_t nb_samples = (2 == argc) ? atoi(argv[1]) / 4 : 1;
 
-auto f_dx = clad::differentiate(f, "x");
-auto f_dy = clad::differentiate(f, "y");
-auto f_g = clad::gradient(f);
+// auto f_dx = clad::differentiate(f, "x");
+// auto f_dy = clad::differentiate(f, "y");
+// auto f_g = clad::gradient(f);
 
-auto f1_dx = clad::differentiate(f1, "x[0]");
-auto f1_g = clad::gradient(f1);
+// auto f1_dx = clad::differentiate(f1, "x[0]");
+// auto f1_g = clad::gradient(f1);
 
-  Dataset dt(nb_samples, 1024u, 768u);
-  double theta[] = {dt.Vx, dt.Vy, dt.Vz};
-  optimize(theta, dt, 10000, 1e-6);
+//   Dataset dt(nb_samples, 1024u, 768u);
+//   double theta[] = {dt.Vx, dt.Vy, dt.Vz};
+//   optimize(theta, dt, 10000, 1e-6);
 
-  std::cout << "Result: "
-            << "(" << theta[0] << ", " << theta[1] << ", " << theta[2] << ")" << std::endl;
+//   std::cout << "Result: "
+//             << "(" << theta[0] << ", " << theta[1] << ", " << theta[2] << ")" << std::endl;
 
   return 0;
 }
