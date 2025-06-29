@@ -1394,8 +1394,13 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
           // On the start of computing every derivative, we have to reset the
           // global adjoint to zero in case it was used by another gradient.
           if (m_DiffReq.Mode == DiffMode::reverse) {
-            Expr* assignToZero = BuildOp(BO_Assign, Clone(foundExpr),
-                                         getZeroInit(foundExpr->getType()));
+            QualType diffTy = foundExpr->getType();
+            Stmt* assignToZero = nullptr;
+            foundExpr = Clone(foundExpr);
+            if (isa<ArrayType>(diffTy))
+              assignToZero = GetCladZeroInit(foundExpr);
+            else
+              assignToZero = BuildOp(BO_Assign, foundExpr, getZeroInit(diffTy));
             addToBlock(assignToZero, m_Globals);
           }
         } else
