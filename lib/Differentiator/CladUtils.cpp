@@ -890,6 +890,32 @@ namespace clad {
           clad_compat::ElaboratedTypeKeyword_None, NS, TT);
     }
 
+    clang::QualType GetSmartTapeType(clang::Sema& S) {
+      static QualType T;
+      if (T.isNull()) {
+        NamespaceDecl* CladNS = GetCladNamespace(S);
+        CXXScopeSpec CSS;
+        CSS.Extend(S.getASTContext(), CladNS, noLoc, noLoc);
+        DeclarationName TapeName = &S.getASTContext().Idents.get("smart_tape");
+        LookupResult TapeR(S, TapeName, noLoc, Sema::LookupUsingDeclName,
+                           CLAD_COMPAT_Sema_ForVisibleRedeclaration);
+        S.LookupQualifiedName(TapeR, CladNS, CSS);
+        assert(!TapeR.empty() && "cannot find clad::smart_tape");
+
+        // This will instantiate tape<T> type and return it.
+        auto* RD = cast<RecordDecl>(TapeR.getFoundDecl());
+        T = S.getASTContext().getRecordType(RD);
+        // Get clad namespace and its identifier clad::.
+        NestedNameSpecifier* NS = CSS.getScopeRep();
+
+        // Create elaborated type with namespace specifier,
+        // i.e. class<T> -> clad::class<T>
+        T = S.getASTContext().getElaboratedType(
+            clad_compat::ElaboratedTypeKeyword_None, NS, T);
+      }
+      return T;
+    }
+
     TemplateDecl* LookupTemplateDeclInCladNamespace(Sema& S,
                                                     llvm::StringRef ClassName) {
       NamespaceDecl* CladNS = GetCladNamespace(S);
@@ -934,8 +960,7 @@ namespace clad {
       // if (const auto* MD = dyn_cast<CXXMethodDecl>(FD))
       //   if (MD->isInstance() && !MD->isConst())
       //     return true;
-      for (const ParmVarDecl* PVD : FD->parameters()) {
-        // FIXME:
+      for (auto PVD : FD->parameters()) {
         QualType paramTy = PVD->getType();
         if (paramTy->isReferenceType() &&
             paramTy.getNonReferenceType()->isRealType())
@@ -1191,6 +1216,13 @@ namespace clad {
           !isa<CXXConstructorDecl>(FD)) {
         FnTypes.insert(FnTypes.begin(), thisTy);
         EPI.TypeQuals.removeConst();
+      }
+
+      if (mode == DiffMode::reverse_mode_forward_pass &&
+          hasMemoryTypeParams(FD)) {
+        QualType tapeTy = GetSmartTapeType(S);
+        tapeTy = S.getASTContext().getLValueReferenceType(tapeTy);
+        FnTypes.push_back(tapeTy);
       }
 
       for (QualType customTy : customParams)
