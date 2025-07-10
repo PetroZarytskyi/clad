@@ -81,6 +81,8 @@ DerivativeAndOverload ReverseModeForwPassVisitor::Derive() {
   m_Sema.PopFunctionScopeInfo();
   m_Sema.PopDeclContext();
   endScope();
+  if (!m_IsRequired)
+    return {};
   return DerivativeAndOverload{m_Derivative, nullptr};
 }
 
@@ -144,8 +146,34 @@ ReverseModeForwPassVisitor::BuildParams(DiffParams& diffParams) {
       m_Variables[*it] = BuildDeclRef(dPVD), m_DiffReq->getLocation();
     }
   }
+  if (utils::hasMemoryTypeParams(m_DiffReq.Function)) {
+    QualType tapeTy = utils::GetSmartTapeType(m_Sema);
+    tapeTy = m_Sema.getASTContext().getLValueReferenceType(tapeTy);
+    auto* tapeDerivativePVD = utils::BuildParmVarDecl(
+        m_Sema, m_Derivative, CreateUniqueIdentifier("tape"), tapeTy);
+    paramDerivatives.push_back(tapeDerivativePVD);
+    m_Sema.PushOnScopeChains(tapeDerivativePVD, getCurrentScope(),
+                             /*AddToContext=*/false);
+    m_SmartTape = BuildDeclRef(tapeDerivativePVD);
+  }
   params.insert(params.end(), paramDerivatives.begin(), paramDerivatives.end());
   return params;
+}
+
+StmtDiff ReverseModeForwPassVisitor::StoreAndRestore(clang::Expr* E,
+                                                     llvm::StringRef prefix,
+                                                     bool moveToTape) {
+  if (!m_SmartTape)
+    return {};
+  if (const auto* DRE = dyn_cast<DeclRefExpr>(E->IgnoreCasts())) {
+    const auto* VD = cast<VarDecl>(DRE->getDecl());
+    if (!VD->getType()->isReferenceType())
+      return {};
+  }
+  m_IsRequired = true;
+  Expr* storeCall =
+      BuildCallExprToMemFn(m_SmartTape, /*MemberFunctionName=*/"store", {E});
+  return {storeCall};
 }
 
 StmtDiff ReverseModeForwPassVisitor::ProcessSingleStmt(const clang::Stmt* S) {
