@@ -960,7 +960,7 @@ namespace clad {
       // if (const auto* MD = dyn_cast<CXXMethodDecl>(FD))
       //   if (MD->isInstance() && !MD->isConst())
       //     return true;
-      for (auto PVD : FD->parameters()) {
+      for (const ParmVarDecl* PVD : FD->parameters()) {
         QualType paramTy = PVD->getType();
         if (paramTy->isReferenceType() &&
             paramTy.getNonReferenceType()->isRealType())
