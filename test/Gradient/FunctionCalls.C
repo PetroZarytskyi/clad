@@ -149,7 +149,7 @@ float sum(double* arr, int n) {
   return res;
 }
 
-// CHECK: float sum_reverse_forw(double *arr, int n, double *_d_arr, int _d_n, clad::smart_tape &tape) {
+// CHECK: float sum_reverse_forw(double *arr, int n, double *_d_arr, int _d_n, clad::restore_tracker &_tracker0) {
 // CHECK-NEXT:     float _d_res = 0.F;
 // CHECK-NEXT:     float res = 0;
 // CHECK-NEXT:     unsigned long _t0 = 0UL;
@@ -158,7 +158,7 @@ float sum(double* arr, int n) {
 // CHECK-NEXT:         _t0++;
 // CHECK-NEXT:         res += arr[i];
 // CHECK-NEXT:     }
-// CHECK-NEXT:     tape.store(arr[0]);
+// CHECK-NEXT:     _tracker0.store(arr[0]);
 // CHECK-NEXT:     arr[0] += 10 * arr[0];
 // CHECK-NEXT:     return res;
 // CHECK-NEXT: }
@@ -215,8 +215,8 @@ double fn4(double* arr, int n) {
 // CHECK-NEXT:     clad::tape<double> _t1 = {};
 // CHECK-NEXT:     double _d_res = 0.;
 // CHECK-NEXT:     double res = 0;
-// CHECK-NEXT:     clad::smart_tape _tape0 = {};
-// CHECK-NEXT:     res += sum_reverse_forw(arr, n, _d_arr, 0, _tape0);
+// CHECK-NEXT:     clad::restore_tracker _tracker0 = {};
+// CHECK-NEXT:     res += sum_reverse_forw(arr, n, _d_arr, 0, _tracker0);
 // CHECK-NEXT:     unsigned {{int|long|long long}} _t0 = {{0U|0UL|0ULL}};
 // CHECK-NEXT:     for (i = 0; i < n; ++i) {
 // CHECK-NEXT:         _t0++;
@@ -238,7 +238,7 @@ double fn4(double* arr, int n) {
 // CHECK-NEXT:     }
 // CHECK-NEXT:     {
 // CHECK-NEXT:         double _r_d0 = _d_res;
-// CHECK-NEXT:         _tape0.restore();
+// CHECK-NEXT:         _tracker0.restore();
 // CHECK-NEXT:         int _r0 = 0;
 // CHECK-NEXT:         sum_pullback(arr, n, _r_d0, _d_arr, &_r0);
 // CHECK-NEXT:         *_d_n += _r0;
@@ -250,8 +250,8 @@ double modify2(double* arr) {
     return 1;
 }
 
-// CHECK: double modify2_reverse_forw(double *arr, double *_d_arr, clad::smart_tape &tape) {
-// CHECK-NEXT:     tape.store(arr[0]);
+// CHECK: double modify2_reverse_forw(double *arr, double *_d_arr, clad::restore_tracker &_tracker0) {
+// CHECK-NEXT:     _tracker0.store(arr[0]);
 // CHECK-NEXT:     arr[0] = 5 * arr[0] + arr[1];
 // CHECK-NEXT:     return 1;
 // CHECK-NEXT: }
@@ -272,12 +272,12 @@ double fn5(double* arr, int n) {
 }
 
 // CHECK: void fn5_grad(double *arr, int n, double *_d_arr, int *_d_n) {
-// CHECK-NEXT:     clad::smart_tape _tape0 = {};
+// CHECK-NEXT:     clad::restore_tracker _tracker0 = {};
 // CHECK-NEXT:     double _d_temp = 0.;
-// CHECK-NEXT:     double temp = modify2_reverse_forw(arr, _d_arr, _tape0);
+// CHECK-NEXT:     double temp = modify2_reverse_forw(arr, _d_arr, _tracker0);
 // CHECK-NEXT:     _d_arr[0] += 1;
 // CHECK-NEXT:     {
-// CHECK-NEXT:       _tape0.restore();
+// CHECK-NEXT:       _tracker0.restore();
 // CHECK-NEXT:       modify2_pullback(arr, _d_temp, _d_arr);
 // CHECK-NEXT:     }
 // CHECK-NEXT: }
@@ -900,12 +900,12 @@ void mult(double* x, double y) {
   }
 }
 
-// CHECK: void mult_reverse_forw(double *x, double y, double *_d_x, double _d_y, clad::smart_tape &tape) {
+// CHECK: void mult_reverse_forw(double *x, double y, double *_d_x, double _d_y, clad::restore_tracker &_tracker0) {
 // CHECK-NEXT:     unsigned {{int|long|long long}} _t0 = {{0U|0UL|0ULL}};
 // CHECK-NEXT:     int _d_i = 0;
 // CHECK-NEXT:     for (int i = 0; i < 3; ++i) {
 // CHECK-NEXT:         _t0++;
-// CHECK-NEXT:         tape.store(x[i]);
+// CHECK-NEXT:         _tracker0.store(x[i]);
 // CHECK-NEXT:         x[i] *= y;
 // CHECK-NEXT:     }
 // CHECK-NEXT: }
@@ -944,14 +944,14 @@ double fn27(double u, double v) {
 // CHECK-NEXT:     double arr[3] = {u, v, 1};
 // CHECK-NEXT:     double _d_sum = 0.;
 // CHECK-NEXT:     double sum0 = arr[0] * arr[1] * arr[2];
-// CHECK-NEXT:     clad::smart_tape _tape0 = {};
-// CHECK-NEXT:     mult_reverse_forw(arr, u, _d_arr, 0., _tape0);
+// CHECK-NEXT:     clad::restore_tracker _tracker0 = {};
+// CHECK-NEXT:     mult_reverse_forw(arr, u, _d_arr, 0., _tracker0);
 // CHECK-NEXT:     {
 // CHECK-NEXT:         _d_sum += 1;
 // CHECK-NEXT:         _d_arr[2] += 1;
 // CHECK-NEXT:     }
 // CHECK-NEXT:     {
-// CHECK-NEXT:         _tape0.restore();
+// CHECK-NEXT:         _tracker0.restore();
 // CHECK-NEXT:         double _r0 = 0.;
 // CHECK-NEXT:         mult_pullback(arr, u, _d_arr, &_r0);
 // CHECK-NEXT:         *_d_u += _r0;
@@ -973,25 +973,25 @@ double& nested(double* x, double y) {
   return x[1];
 }
 
-// CHECK-NEXT: clad::ValueAndAdjoint<double &, double &> nested_reverse_forw(double *x, double y, double *_d_x, double _d_y, clad::smart_tape &tape) {
-// CHECK-NEXT:     mult_reverse_forw(x, y, _d_x, 0., tape);
-// CHECK-NEXT:     mult_reverse_forw(x, 3, _d_x, 0., tape);
+// CHECK-NEXT: clad::ValueAndAdjoint<double &, double &> nested_reverse_forw(double *x, double y, double *_d_x, double _d_y, clad::restore_tracker &_tracker0) {
+// CHECK-NEXT:     mult_reverse_forw(x, y, _d_x, 0., _tracker0);
+// CHECK-NEXT:     mult_reverse_forw(x, 3, _d_x, 0., _tracker0);
 // CHECK-NEXT:     return {x[1], _d_x[1]};
 // CHECK-NEXT: }
 
 // CHECK-NEXT: void nested_pullback(double *x, double y, double _d_y0, double *_d_x, double *_d_y) {
-// CHECK-NEXT:     clad::smart_tape _tape0 = {};
-// CHECK-NEXT:     mult_reverse_forw(x, y, _d_x, 0., _tape0);
-// CHECK-NEXT:     clad::smart_tape _tape1 = {};
-// CHECK-NEXT:     mult_reverse_forw(x, 3, _d_x, 0., _tape1);
+// CHECK-NEXT:     clad::restore_tracker _tracker0 = {};
+// CHECK-NEXT:     mult_reverse_forw(x, y, _d_x, 0., _tracker0);
+// CHECK-NEXT:     clad::restore_tracker _tracker1 = {};
+// CHECK-NEXT:     mult_reverse_forw(x, 3, _d_x, 0., _tracker1);
 // CHECK-NEXT:     _d_x[1] += _d_y0;
 // CHECK-NEXT:     {
-// CHECK-NEXT:         _tape1.restore();
+// CHECK-NEXT:         _tracker1.restore();
 // CHECK-NEXT:         double _r1 = 0.;
 // CHECK-NEXT:         mult_pullback(x, 3, _d_x, &_r1);
 // CHECK-NEXT:     }
 // CHECK-NEXT:     {
-// CHECK-NEXT:         _tape0.restore();
+// CHECK-NEXT:         _tracker0.restore();
 // CHECK-NEXT:         double _r0 = 0.;
 // CHECK-NEXT:         mult_pullback(x, y, _d_x, &_r0);
 // CHECK-NEXT:         *_d_y += _r0;
@@ -1008,8 +1008,8 @@ double fn28(double u, double v) {
 // CHECK-NEXT: void fn28_grad(double u, double v, double *_d_u, double *_d_v) {
 // CHECK-NEXT:     double _d_arr[3] = {0};
 // CHECK-NEXT:     double arr[3] = {u, v, 1};
-// CHECK-NEXT:     clad::smart_tape _tape0 = {};
-// CHECK-NEXT:     clad::ValueAndAdjoint<double &, double &> _t0 = nested_reverse_forw(arr, u, _d_arr, 0., _tape0);
+// CHECK-NEXT:     clad::restore_tracker _tracker0 = {};
+// CHECK-NEXT:     clad::ValueAndAdjoint<double &, double &> _t0 = nested_reverse_forw(arr, u, _d_arr, 0., _tracker0);
 // CHECK-NEXT:     double &_d_ref = _t0.adjoint;
 // CHECK-NEXT:     double &ref = _t0.value;
 // CHECK-NEXT:     double _t1 = ref;
@@ -1022,7 +1022,7 @@ double fn28(double u, double v) {
 // CHECK-NEXT:         _d_ref += _r_d0 * 2;
 // CHECK-NEXT:     }
 // CHECK-NEXT:     {
-// CHECK-NEXT:         _tape0.restore();
+// CHECK-NEXT:         _tracker0.restore();
 // CHECK-NEXT:         double _r0 = 0.;
 // CHECK-NEXT:         nested_pullback(arr, u, 0., _d_arr, &_r0);
 // CHECK-NEXT:         *_d_u += _r0;
