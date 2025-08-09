@@ -28,6 +28,9 @@ public:
   // reverse sweep derivative stmts and store/restore stmts,
   // which are not used in reverse_forw functions
   clang::Expr* dfdx() override { return nullptr; }
+  DelayedStoreResult DelayedGlobalStoreAndRef(clang::Expr* E,
+                                            llvm::StringRef prefix = "_t",
+                                            bool forceStore = false) override;
   StmtDiff StoreAndRestore(clang::Expr* E, llvm::StringRef prefix = "_t",
                            bool moveToTape = false) override {
     return {};

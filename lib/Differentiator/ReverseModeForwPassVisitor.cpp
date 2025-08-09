@@ -163,6 +163,17 @@ ReverseModeForwPassVisitor::VisitCompoundStmt(const clang::CompoundStmt* CS) {
   return {forward};
 }
 
+ReverseModeForwPassVisitor::DelayedStoreResult
+ReverseModeForwPassVisitor::DelayedGlobalStoreAndRef(Expr* E, llvm::StringRef prefix,
+                                              bool forceStore) {
+  assert(E && "must be provided");
+  StmtDiff Ediff = Visit(E);
+  return DelayedStoreResult{*this, Ediff,
+                            /*Declaration=*/nullptr,
+                            /*isInsideLoop=*/false,
+                            /*isFnScope=*/false};
+}
+
 StmtDiff ReverseModeForwPassVisitor::VisitDeclRefExpr(const DeclRefExpr* DRE) {
   DeclRefExpr* clonedDRE = nullptr;
   // Check if referenced Decl was "replaced" with another identifier inside

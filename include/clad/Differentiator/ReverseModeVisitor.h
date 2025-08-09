@@ -287,7 +287,7 @@ namespace clad {
     /// expression only later, after the expression is visited and rebuilt.
     /// This is what DelayedGlobalStoreAndRef does. E is expected to be the
     /// original (uncloned) expression.
-    DelayedStoreResult DelayedGlobalStoreAndRef(clang::Expr* E,
+    virtual DelayedStoreResult DelayedGlobalStoreAndRef(clang::Expr* E,
                                                 llvm::StringRef prefix = "_t",
                                                 bool forceStore = false);
 
