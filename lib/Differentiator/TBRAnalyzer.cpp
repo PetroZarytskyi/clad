@@ -66,8 +66,9 @@ void TBRAnalyzer::setIsRequired(const clang::Expr* E, bool isReq) {
     if (m_ModifiedParams && (!iterVD || isa<ParmVarDecl>(iterVD))) {
       if (!isReq)
         (*m_ModifiedParams)[m_Function].insert(iterVD);
-      else if (m_ModeStack.back() & Mode::kMarkingMode)
-        (*m_UsedParams)[m_Function].insert(iterVD);
+      else if (m_ModeStack.back() & Mode::kMarkingMode){
+        E->dump();
+        (*m_UsedParams)[m_Function].insert(iterVD);}
     }
     if (isReq || sequenceFound) {
       if (curBranch.find(iterVD) == curBranch.end()) {
@@ -143,6 +144,24 @@ void TBRAnalyzer::Analyze(const DiffRequest& request) {
     unsigned line = SM.getPresumedLoc(Loc).getLine();
     unsigned column = SM.getPresumedLoc(Loc).getColumn();
     LLVM_DEBUG(llvm::dbgs() << line << ":" << column << "\n");
+  }
+  if (m_ModifiedParams) {
+    m_Function->dump();
+    llvm::errs() << m_Function->getNameAsString() << ":\n\nmodified params:\n"; 
+    for (auto* d : (*m_ModifiedParams)[m_Function]){
+      if (d)
+        llvm::errs() << cast<NamedDecl>(d)->getNameAsString() << "\n";
+      else
+        llvm::errs() << "null\n";
+      }
+    llvm::errs() << "used params:\n";
+    for (auto* d : (*m_UsedParams)[m_Function]){
+      if (d)
+        llvm::errs() << cast<NamedDecl>(d)->getNameAsString() << "\n";
+      else
+        llvm::errs() << "null\n";
+      }
+    llvm::errs() << "\nEND\n";
   }
 #endif // NDEBUG
 }
