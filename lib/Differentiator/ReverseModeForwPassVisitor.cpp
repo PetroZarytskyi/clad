@@ -7,6 +7,9 @@
 
 #include "llvm/Support/SaveAndRestore.h"
 
+#include "clang/AST/Expr.h"
+#include "clang/Basic/LLVM.h"
+
 #include <algorithm>
 #include <iterator>
 
@@ -193,9 +196,11 @@ StmtDiff
 ReverseModeForwPassVisitor::VisitReturnStmt(const clang::ReturnStmt* RS) {
   const Expr* value = RS->getRetValue();
   auto returnDiff = Visit(value);
+  SourceLocation validLoc{RS->getBeginLoc()};
+  if (!utils::isMemoryType(m_DiffReq->getReturnType()))
+    return m_Sema.BuildReturnStmt(validLoc, returnDiff.getExpr()).get();
   llvm::SmallVector<Expr*, 2> returnArgs = {returnDiff.getExpr(),
                                             returnDiff.getExpr_dx()};
-  SourceLocation validLoc{RS->getBeginLoc()};
   Expr* returnInitList =
       m_Sema.ActOnInitList(validLoc, returnArgs, validLoc).get();
   Stmt* newRS = m_Sema.BuildReturnStmt(validLoc, returnInitList).get();

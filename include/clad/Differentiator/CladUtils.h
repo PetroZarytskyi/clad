@@ -404,6 +404,8 @@ namespace clad {
     /// Returns true if T allows to edit any memory.
     bool isMemoryType(clang::QualType T);
 
+    bool hasMemoryTypeParams(const clang::FunctionDecl* FD);
+
     bool IsDifferentiableType(clang::QualType T);
 
     /// Returns true if FD can be differentiated as a pushforward
