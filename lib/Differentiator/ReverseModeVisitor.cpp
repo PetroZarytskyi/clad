@@ -1671,7 +1671,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     QualType returnType = FD->getReturnType();
     // FIXME: Decide this in the diff planner
     bool needsForwPass = utils::isMemoryType(returnType);
-
+    bool hasStoredParams = false;
     // FIXME: if the call is non-differentiable but needs a reverse forward
     // call, we still don't need to generate the pullback. The only challenge is
     // to refactor the code to be able to jump over the pullback part (maybe
@@ -1831,7 +1831,10 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       QualType paramTy = PVD->getType();
       bool passByRef = paramTy->isLValueReferenceType() &&
                        !paramTy.getNonReferenceType().isConstQualified();
-      if (passByRef && m_DiffReq.shouldBeRecorded(arg)) {
+      bool shouldBeRecorded = m_DiffReq.shouldBeRecorded(arg);
+      if (shouldBeRecorded && utils::isMemoryType(paramTy))
+        hasStoredParams = true;
+      if (passByRef && shouldBeRecorded) {
         StmtDiff pushPop = StoreAndRestore(argDiff.getExpr());
         addToCurrentBlock(pushPop.getStmt());
         PreCallStmts.push_back(pushPop.getStmt_dx());
@@ -1879,10 +1882,16 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         CXXRecordDecl* baseRD = baseTy->getAsCXXRecordDecl();
         if (isPassedByRef && !MD->isConst() && utils::isCopyable(baseRD) &&
             m_DiffReq.shouldBeRecorded(baseOriginalE)) {
-          Expr* baseDiffStore =
-              GlobalStoreAndRef(baseDiff.getExpr(), "_t", /*force=*/true);
-          Expr* assign = BuildOp(BO_Assign, baseDiff.getExpr(), baseDiffStore);
-          PreCallStmts.push_back(assign);
+          hasStoredParams = true;
+          if (utils::isCopyable(baseRD)) {
+            Expr* baseDiffStore =
+                GlobalStoreAndRef(baseDiff.getExpr(), "_t", /*force=*/true);
+            if (baseDiffStore != baseDiff.getExpr()) {
+              Expr* assign =
+                  BuildOp(BO_Assign, baseDiff.getExpr(), baseDiffStore);
+              PreCallStmts.push_back(assign);
+            }
+          }
         }
         Expr* baseDerivative = baseDiff.getExpr_dx();
         if (!baseDerivative->getType()->isPointerType())
@@ -2101,7 +2110,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     calleeFnForwPassReq.VerboseDiags = true;
 
     FunctionDecl* calleeFnForwPassFD = FindDerivedFunction(calleeFnForwPassReq);
-    if (calleeFnForwPassFD) {
+    if (calleeFnForwPassFD && !hasDynamicNonDiffParams && (hasStoredParams || needsForwPass)) {
       for (std::size_t i = 0, e = CE->getNumArgs() - isMethodOperatorCall;
            i != e; ++i) {
         const Expr* arg = CE->getArg(i + isMethodOperatorCall);

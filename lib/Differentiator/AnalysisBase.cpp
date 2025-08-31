@@ -110,7 +110,7 @@ void AnalysisBase::getDependencySet(const clang::Expr* E,
     bool TraverseDeclRefExpr(DeclRefExpr* DRE) {
       if (auto* VD = dyn_cast<VarDecl>(DRE->getDecl()))
         vars.insert(VD);
-      return false;
+      return true;
     }
     bool TraverseArraySubscriptExpr(ArraySubscriptExpr* ASE) {
       TraverseStmt(ASE->getBase());
@@ -206,6 +206,8 @@ bool AnalysisBase::findReq(const VarData& varData) {
     for (const VarDecl* VD : *varData.m_Val.m_RefData)
       if (findReq(*getVarDataFromDecl(VD)))
         return true;
+  if (varData.m_Type == VarData::UNDEFINED)
+    return true;
   return false;
 }
 

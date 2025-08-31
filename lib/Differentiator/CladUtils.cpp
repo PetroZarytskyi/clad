@@ -927,6 +927,25 @@ namespace clad {
       return false;
     }
 
+    bool hasMemoryTypeParams(const FunctionDecl* FD) {
+      // FIXME: enable for methods
+      if (isa<CXXMethodDecl>(FD) || FD->isOverloadedOperator())
+        return false;
+      // if (const auto* MD = dyn_cast<CXXMethodDecl>(FD))
+      //   if (MD->isInstance() && !MD->isConst())
+      //     return true;
+      for (const ParmVarDecl* PVD : FD->parameters()) {
+        // FIXME:
+        QualType paramTy = PVD->getType();
+        if (paramTy->isReferenceType() &&
+            paramTy.getNonReferenceType()->isRealType())
+          continue;
+        if (isMemoryType(paramTy))
+          return true;
+      }
+      return false;
+    }
+
     QualType InstantiateTemplate(Sema& S, TemplateDecl* CladClassDecl,
                                  ArrayRef<QualType> TemplateArgs) {
       // Create a list of template arguments.
@@ -959,7 +978,7 @@ namespace clad {
     bool IsDifferentiableType(QualType T) {
       QualType origType = T;
       // FIXME: arbitrary dimension array type as well.
-      while (utils::isArrayOrPointerType(T))
+      while (utils::isArrayOrPointerType(T) || T->isReferenceType())
         T = utils::GetValueType(T);
       T = T.getNonReferenceType();
       if (T->isEnumeralType())
@@ -1097,10 +1116,14 @@ namespace clad {
                         mode == DiffMode::vector_forward_mode;
       if (mode == DiffMode::reverse_mode_forward_pass &&
           !oRetTy->isVoidType()) {
-        TemplateDecl* valAndAdjointTempDecl =
-            utils::LookupTemplateDeclInCladNamespace(S, "ValueAndAdjoint");
-        dRetTy = utils::InstantiateTemplate(S, valAndAdjointTempDecl,
-                                            {oRetTy, oRetTy});
+        if (isMemoryType(oRetTy)) {
+          TemplateDecl* valAndAdjointTempDecl =
+              utils::LookupTemplateDeclInCladNamespace(S, "ValueAndAdjoint");
+          dRetTy = utils::InstantiateTemplate(S, valAndAdjointTempDecl,
+                                              {oRetTy, oRetTy});
+        } else {
+          dRetTy = oRetTy;
+        }
       } else if (mode == DiffMode::hessian ||
                  mode == DiffMode::hessian_diagonal) {
         QualType argTy = C.getPointerType(oRetTy);
