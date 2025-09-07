@@ -16,9 +16,6 @@ namespace clad {
 class ReverseModeForwPassVisitor : public ReverseModeVisitor {
 private:
   Stmts m_Globals;
-  // FIXME: This is used to get rid of useless reverse_forw functions.
-  // Ideally, we shouldn't schedule them by using TBR analysis.
-  bool m_IsRequired = false;
 
   llvm::SmallVector<clang::ParmVarDecl*, 8> BuildParams(DiffParams& diffParams);
 

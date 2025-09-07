@@ -81,8 +81,6 @@ DerivativeAndOverload ReverseModeForwPassVisitor::Derive() {
   m_Sema.PopFunctionScopeInfo();
   m_Sema.PopDeclContext();
   endScope();
-  if (!m_IsRequired)
-    return {};
   return DerivativeAndOverload{m_Derivative, nullptr};
 }
 
@@ -170,7 +168,6 @@ StmtDiff ReverseModeForwPassVisitor::StoreAndRestore(clang::Expr* E,
     if (!VD->getType()->isReferenceType())
       return {};
   }
-  m_IsRequired = true;
   Expr* storeCall = BuildCallExprToMemFn(m_RestoreTracker,
                                          /*MemberFunctionName=*/"store", {E});
   return {storeCall};
