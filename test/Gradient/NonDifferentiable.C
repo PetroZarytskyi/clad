@@ -260,11 +260,7 @@ int main() {
   // CHECK-NEXT:}
 
   // CHECK: void fn_grad_0(int *out, Input in, int *_d_out) {
-  // CHECK-NEXT:    clad::restore_tracker _tracker0 = {};
-  // CHECK-NEXT:    result_reverse_forw(out, in, _d_out, {0}, _tracker0);
-  // CHECK-NEXT:    {
-  // CHECK-NEXT:        _tracker0.restore();
-  // CHECK-NEXT:        result_pullback(out, in, _d_out);
-  // CHECK-NEXT:    }
+  // CHECK-NEXT:    result(out, in);
+  // CHECK-NEXT:    result_pullback(out, in, _d_out);
   // CHECK-NEXT:}
 }
