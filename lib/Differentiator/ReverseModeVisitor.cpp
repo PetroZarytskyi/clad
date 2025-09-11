@@ -1901,16 +1901,12 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
                                               isa<CUDAKernelCallExpr>(CE));
       CallArgDx.push_back(argDiff.getExpr_dx());
       CallArgs.push_back(argDiff.getExpr());
-      DerivedCallArgs.push_back(argDiff.getExpr());
       revForwAdjointArgs.push_back(argDiff.getRevSweepAsExpr());
       if (m_DiffReq.shouldBeRecorded(arg))
         hasStoredParams = true;
     }
     // Store all the derived call output args (if any)
     llvm::SmallVector<Expr*, 16> DerivedCallOutputArgs{};
-    // It is required because call to numerical diff and reverse mode diff
-    // requires (slightly) different arguments.
-    llvm::SmallVector<Expr*, 16> pullbackCallArgs{};
 
     // Stores differentiation result of implicit `this` object, if any.
     StmtDiff baseDiff;
@@ -1979,10 +1975,13 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       DerivedCallOutputArgs.push_back(gradArgExpr);
       idx++;
     }
+
+    // It is required because call to numerical diff and reverse mode diff
+    // requires (slightly) different arguments.
+    llvm::SmallVector<Expr*, 16> pullbackCallArgs = CallArgs;
     for (Expr* arg : DerivedCallOutputArgs)
       if (arg)
-        DerivedCallArgs.push_back(arg);
-    pullbackCallArgs = DerivedCallArgs;
+        pullbackCallArgs.push_back(arg);
     QualType nonRefRetTy = returnType.getNonReferenceType();
     if (!(nonRefRetTy->isPointerType() || nonRefRetTy->isVoidType())) {
       Expr* pullback = dfdx();
@@ -2004,7 +2003,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     if (!asGrad) {
       pullbackCallArgs.resize(1);
       pullbackCallArgs.push_back(ConstantFolder::synthesizeLiteral(
-          DerivedCallArgs.front()->getType(), m_Context, /*val=*/1));
+          pullbackCallArgs.front()->getType(), m_Context, /*val=*/1));
     }
 
     pullbackRequest.BaseFunctionName = clad::utils::ComputeEffectiveFnName(FD);
@@ -2062,9 +2061,9 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
           if (!asGrad) {
             asGrad = true;
             pullbackRequest.Mode = DiffMode::pullback;
-            pullbackCallArgs = DerivedCallArgs;
-            pullbackCallArgs.insert(pullbackCallArgs.begin() + CE->getNumArgs(),
-                                    dfdx());
+            pullbackCallArgs.resize(1);
+            pullbackCallArgs.push_back(dfdx());
+            pullbackCallArgs.push_back(DerivedCallOutputArgs.back());
             for (const ParmVarDecl* PVD : FD->parameters())
               pullbackRequest.DVI.push_back(PVD);
           }
@@ -2103,15 +2102,15 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       // Clad failed to derive it. Try numerically deriving it.
       if (NArgs == 1) {
         OverloadedDerivedFn = GetSingleArgCentralDiffCall(
-            Clone(CE->getCallee()), DerivedCallArgs[0],
+            Clone(CE->getCallee()), pullbackCallArgs[0],
             /*targetPos=*/0,
-            /*numArgs=*/1, DerivedCallArgs, CUDAExecConfig);
+            /*numArgs=*/1, pullbackCallArgs, CUDAExecConfig);
         asGrad = !OverloadedDerivedFn;
       } else {
         auto CEType = utils::getNonConstType(CE->getType(), m_Sema);
         OverloadedDerivedFn = GetMultiArgCentralDiffCall(
             Clone(CE->getCallee()), CEType.getCanonicalType(), CE->getNumArgs(),
-            dfdx(), PreCallStmts, PostCallStmts, DerivedCallArgs, CallArgDx,
+            dfdx(), PreCallStmts, PostCallStmts, pullbackCallArgs, CallArgDx,
             CUDAExecConfig);
       }
       CallExprDiffDiagnostics(FD, CE->getBeginLoc());
@@ -2152,7 +2151,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
 
     if (m_ExternalSource)
       m_ExternalSource->ActBeforeFinalizingVisitCallExpr(
-          CE, OverloadedDerivedFn, DerivedCallArgs, CallArgDx, asGrad);
+          CE, OverloadedDerivedFn, pullbackCallArgs, CallArgDx, asGrad);
 
     if (isa<CUDAKernelCallExpr>(CE))
       return StmtDiff(Clone(CE));
