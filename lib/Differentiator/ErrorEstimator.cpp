@@ -116,8 +116,9 @@ void ErrorEstimationHandler::EmitNestedFunctionParamError(
     // // estimation.
     // if (utils::IsReferenceOrPointerType(fnDecl->getParamDecl(i)->getType()))
     //   continue;
+    auto* UnOp = cast<UnaryOperator>(ArgResult[i]);
     Expr* errorExpr = m_EstModel->AssignError(
-        {derivedCallArgs[i], m_RMV->Clone(ArgResult[i])},
+        {derivedCallArgs[i], m_RMV->Clone(UnOp->getSubExpr())},
         fnDecl->getNameInfo().getAsString() + "_param_" + std::to_string(i));
     Expr* FinalError = BuildFinalErrorExpr();
     Expr* errorStmt = m_RMV->BuildOp(BO_AddAssign, FinalError, errorExpr);

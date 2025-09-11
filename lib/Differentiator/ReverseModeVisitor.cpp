@@ -1730,8 +1730,6 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     llvm::SmallVector<Expr*, 16> CallArgs{};
     // Stores the dx of the call arguments for the function to be derived
     llvm::SmallVector<Expr*, 16> CallArgDx{};
-    // Stores the call arguments for the derived function
-    llvm::SmallVector<Expr*, 16> DerivedCallArgs{};
     // Stores tape decl and pushes for multiarg numerically differentiated
     // calls.
     llvm::SmallVector<Stmt*, 16> PostCallStmts{};
@@ -1744,9 +1742,9 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         StmtDiff ArgDiff = Visit(Arg, dfdx());
         CallArgs.push_back(ArgDiff.getExpr());
         if (Arg->getType()->isPointerType())
-          DerivedCallArgs.push_back(ArgDiff.getExpr_dx());
+          CallArgDx.push_back(ArgDiff.getExpr_dx());
         else
-          DerivedCallArgs.push_back(ArgDiff.getExpr());
+          CallArgDx.push_back(ArgDiff.getExpr());
       }
       Expr* call =
           m_Sema
@@ -1756,16 +1754,15 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       Expr* call_dx =
           m_Sema
               .ActOnCallExpr(getCurrentScope(), Clone(CE->getCallee()), Loc,
-                             llvm::MutableArrayRef<Expr*>(DerivedCallArgs), Loc)
+                             llvm::MutableArrayRef<Expr*>(CallArgDx), Loc)
               .get();
       if (FD->getNameAsString() == "cudaMalloc") {
-        if (auto* addrOp = dyn_cast<UnaryOperator>(DerivedCallArgs[0]))
+        if (auto* addrOp = dyn_cast<UnaryOperator>(CallArgDx[0]))
           if (addrOp->getOpcode() == UO_AddrOf)
-            DerivedCallArgs[0] = addrOp->getSubExpr(); // get the pointer
+            CallArgDx[0] = addrOp->getSubExpr(); // get the pointer
 
-        llvm::SmallVector<Expr*, 3> args = {DerivedCallArgs[0],
-                                            getZeroInit(m_Context.IntTy),
-                                            DerivedCallArgs[1]};
+        llvm::SmallVector<Expr*, 3> args = {
+            CallArgDx[0], getZeroInit(m_Context.IntTy), CallArgDx[1]};
         addToCurrentBlock(call_dx, direction::forward);
         addToCurrentBlock(GetFunctionCall("cudaMemset", "", args));
         call_dx = nullptr;
@@ -1784,7 +1781,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
           // If the arg is used as independent variable, then we cannot free it
           // as it holds the result to be returned to the user.
           if (llvm::find(m_DiffReq.DVI, DRE->getDecl()) == m_DiffReq.DVI.end())
-            DerivedCallArgs.push_back(ArgDiff.getExpr_dx());
+            CallArgDx.push_back(ArgDiff.getExpr_dx());
         }
       }
       Expr* call =
@@ -1794,12 +1791,11 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
               .get();
       m_DeallocExprs.push_back(call);
 
-      if (!DerivedCallArgs.empty()) {
+      if (!CallArgDx.empty()) {
         Expr* call_dx =
             m_Sema
                 .ActOnCallExpr(getCurrentScope(), Clone(CE->getCallee()), Loc,
-                               llvm::MutableArrayRef<Expr*>(DerivedCallArgs),
-                               Loc)
+                               llvm::MutableArrayRef<Expr*>(CallArgDx), Loc)
                 .get();
         m_DeallocExprs.push_back(call_dx);
       }
@@ -1897,22 +1893,26 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       const Expr* arg = CE->getArg(i);
       const auto* PVD = FD->getParamDecl(
           i - static_cast<unsigned long>(isMethodOperatorCall));
-      StmtDiff argDiff = DifferentiateCallArg(arg, PVD, PreCallStmts, false,
-                                              isa<CUDAKernelCallExpr>(CE));
-      CallArgDx.push_back(argDiff.getExpr_dx());
+      StmtDiff argDiff =
+          DifferentiateCallArg(arg, PVD, PreCallStmts, /*isNonDiff=*/nonDiff,
+                               isa<CUDAKernelCallExpr>(CE));
       CallArgs.push_back(argDiff.getExpr());
       revForwAdjointArgs.push_back(argDiff.getRevSweepAsExpr());
+      Expr* argDerivative = argDiff.getExpr_dx();
+      if (!argDerivative || utils::isArrayOrPointerType(PVD->getType()) ||
+          isCladArrayType(argDerivative->getType()) ||
+          isa<CUDAKernelCallExpr>(CE))
+        CallArgDx.push_back(argDerivative);
+      else
+        CallArgDx.push_back(
+            BuildOp(UO_AddrOf, argDerivative, m_DiffReq->getLocation()));
       if (m_DiffReq.shouldBeRecorded(arg))
         hasStoredParams = true;
     }
-    // Store all the derived call output args (if any)
-    llvm::SmallVector<Expr*, 16> DerivedCallOutputArgs{};
 
     // Stores differentiation result of implicit `this` object, if any.
     StmtDiff baseDiff;
     Expr* baseExpr = nullptr;
-    size_t idx = 0;
-
     /// Add base derivative expression in the derived call output args list if
     /// `CE` is a call to an instance member function.
     if (MD) {
@@ -1957,23 +1957,9 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         if (!baseDerivative->getType()->isPointerType())
           baseDerivative =
               BuildOp(UnaryOperatorKind::UO_AddrOf, baseDerivative);
-        DerivedCallOutputArgs.push_back(baseDerivative);
+        CallArgDx.insert(CallArgDx.begin(), baseDerivative);
         revForwAdjointArgs.insert(revForwAdjointArgs.begin(), baseDerivative);
       }
-    }
-
-    for (auto* argDerivative : CallArgDx) {
-      Expr* gradArgExpr = nullptr;
-      QualType paramTy = FD->getParamDecl(idx)->getType();
-      if (!argDerivative || utils::isArrayOrPointerType(paramTy) ||
-          isCladArrayType(argDerivative->getType()) ||
-          isa<CUDAKernelCallExpr>(CE))
-        gradArgExpr = argDerivative;
-      else
-        gradArgExpr =
-            BuildOp(UO_AddrOf, argDerivative, m_DiffReq->getLocation());
-      DerivedCallOutputArgs.push_back(gradArgExpr);
-      idx++;
     }
 
     // It is required because call to numerical diff and reverse mode diff
@@ -1986,7 +1972,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       else
         pullbackCallArgs.push_back(getZeroInit(nonRefRetTy));
     }
-    for (Expr* arg : DerivedCallOutputArgs)
+    for (Expr* arg : CallArgDx)
       if (arg)
         pullbackCallArgs.push_back(arg);
 
@@ -2019,7 +2005,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         size_t offset = (bool)MD && MD->isInstance();
         if (MD && isLambdaCallOperator(MD)) {
           pullbackRequest.DVI.push_back(PVD);
-        } else if (DerivedCallOutputArgs[i + offset]) {
+        } else if (CallArgDx[i + offset]) {
           if (!m_DiffReq.CUDAGlobalArgsIndexes.empty() &&
               m_DiffReq.HasIndependentParameter(PVD))
             pullbackRequest.CUDAGlobalArgsIndexes.push_back(i);
@@ -2061,7 +2047,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
             pullbackRequest.Mode = DiffMode::pullback;
             pullbackCallArgs.resize(1);
             pullbackCallArgs.push_back(dfdx());
-            pullbackCallArgs.push_back(DerivedCallOutputArgs.back());
+            pullbackCallArgs.push_back(CallArgDx.back());
             for (const ParmVarDecl* PVD : FD->parameters())
               pullbackRequest.DVI.push_back(PVD);
           }
@@ -2136,7 +2122,8 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
             m_Sema, getCurrentScope(), OverloadedDerivedFn, "pushforward");
       // If the derivative is called through _darg0 instead of _grad.
       Expr* d = BuildOp(BO_Mul, dfdx(), OverloadedDerivedFn);
-      Expr* addGrad = BuildOp(BO_AddAssign, Clone(CallArgDx[0]), d);
+      auto* UnOp = cast<UnaryOperator>(CallArgDx[0]);
+      Expr* addGrad = BuildOp(BO_AddAssign, Clone(UnOp->getSubExpr()), d);
       it = block.insert(it, addGrad);
       it++;
     } else {
@@ -2283,7 +2270,9 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       Expr* gradExpr = BuildOp(BO_Mul, dfdx, gradElem);
       // Inputs were not pointers, so the output args are not in global GPU
       // memory. Hence, no need to use atomic ops.
-      PostCallStmts.push_back(BuildOp(BO_AddAssign, outputArgs[i], gradExpr));
+      auto* UnOp = cast<UnaryOperator>(outputArgs[i]);
+      PostCallStmts.push_back(
+          BuildOp(BO_AddAssign, UnOp->getSubExpr(), gradExpr));
       NumDiffArgs.push_back(args[i]);
     }
     std::string Name = "central_difference";
