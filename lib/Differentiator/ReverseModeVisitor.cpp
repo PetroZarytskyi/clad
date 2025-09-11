@@ -1979,18 +1979,16 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     // It is required because call to numerical diff and reverse mode diff
     // requires (slightly) different arguments.
     llvm::SmallVector<Expr*, 16> pullbackCallArgs = CallArgs;
+    QualType nonRefRetTy = returnType.getNonReferenceType();
+    if (!(nonRefRetTy->isPointerType() || nonRefRetTy->isVoidType())) {
+      if (Expr* pullback = dfdx())
+        pullbackCallArgs.push_back(pullback);
+      else
+        pullbackCallArgs.push_back(getZeroInit(nonRefRetTy));
+    }
     for (Expr* arg : DerivedCallOutputArgs)
       if (arg)
         pullbackCallArgs.push_back(arg);
-    QualType nonRefRetTy = returnType.getNonReferenceType();
-    if (!(nonRefRetTy->isPointerType() || nonRefRetTy->isVoidType())) {
-      Expr* pullback = dfdx();
-      if (!pullback)
-        pullback = getZeroInit(nonRefRetTy);
-      pullbackCallArgs.insert(pullbackCallArgs.begin() + CE->getNumArgs() -
-                                  static_cast<int>(isMethodOperatorCall),
-                              pullback);
-    }
 
     // Build the DiffRequest
     DiffRequest pullbackRequest{};
