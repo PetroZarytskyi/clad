@@ -1979,27 +1979,19 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       DerivedCallOutputArgs.push_back(gradArgExpr);
       idx++;
     }
-    Expr* pullback = dfdx();
-
-    if (returnType->isVoidType()) {
-      assert(pullback == nullptr && returnType->isVoidType() &&
-             "Call to function returning void type should not have any "
-             "corresponding dfdx().");
-    }
-
-    if ((pullback == nullptr) &&
-        !(returnType->isPointerType() || returnType->isVoidType()))
-      pullback = getZeroInit(returnType.getNonReferenceType());
-
     for (Expr* arg : DerivedCallOutputArgs)
       if (arg)
         DerivedCallArgs.push_back(arg);
     pullbackCallArgs = DerivedCallArgs;
-
-    if (pullback)
+    QualType nonRefRetTy = returnType.getNonReferenceType();
+    if (!(nonRefRetTy->isPointerType() || nonRefRetTy->isVoidType())) {
+      Expr* pullback = dfdx();
+      if (!pullback)
+        pullback = getZeroInit(nonRefRetTy);
       pullbackCallArgs.insert(pullbackCallArgs.begin() + CE->getNumArgs() -
                                   static_cast<int>(isMethodOperatorCall),
                               pullback);
+    }
 
     // Build the DiffRequest
     DiffRequest pullbackRequest{};
@@ -2072,7 +2064,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
             pullbackRequest.Mode = DiffMode::pullback;
             pullbackCallArgs = DerivedCallArgs;
             pullbackCallArgs.insert(pullbackCallArgs.begin() + CE->getNumArgs(),
-                                    pullback);
+                                    dfdx());
             for (const ParmVarDecl* PVD : FD->parameters())
               pullbackRequest.DVI.push_back(PVD);
           }
