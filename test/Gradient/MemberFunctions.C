@@ -502,7 +502,7 @@ double fn5(SimpleFunctions& v, double value) {
 
 // CHECK: void fn5_grad(SimpleFunctions &v, double value, SimpleFunctions *_d_v, double *_d_value) {
 // CHECK-NEXT:     SimpleFunctions _t0 = v;
-// CHECK-NEXT:     v.operator_plus_equal_reverse_forw(value, &(*_d_v), 0.);
+// CHECK-NEXT:     v.operator_plus_equal_reverse_forw(value, &(*_d_v), *_d_value);
 // CHECK-NEXT:     (*_d_v).x += 1;
 // CHECK-NEXT:     {
 // CHECK-NEXT:         double _r0 = 0.;

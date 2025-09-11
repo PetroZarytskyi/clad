@@ -1533,7 +1533,6 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     if (utils::IsReferenceOrPointerArg(arg) || isNonDiff) {
       argDiff = Visit(arg);
       result.updateStmtDx(argDiff.getExpr_dx());
-      result.updateRevSweep(argDiff.getExpr_dx());
     } else {
       // Create temporary variables corresponding to derivative of each
       // argument, so that they can be referred to when arguments is visited.
@@ -1636,11 +1635,11 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         else
           SetDeclInit(dArgDecl, getZeroInit(dArgTy));
       }
-      if (argDiff.getExpr_dx())
-        result.updateRevSweep(argDiff.getExpr_dx());
-      else
-        result.updateRevSweep(getZeroInit(arg->getType()));
     }
+    if (argDiff.getExpr_dx())
+      result.updateRevSweep(argDiff.getExpr_dx());
+    else
+      result.updateRevSweep(getZeroInit(arg->getType()));
 
     // If a function returns an object by value, there
     // are an implicit move constructor and an implicit
@@ -1650,6 +1649,12 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       llvm::SmallVector<Expr*, 1> moveArg = {argDiff.getExpr()};
       Expr* moveCall = GetFunctionCall("move", "std", moveArg);
       argDiff.updateStmt(moveCall);
+    }
+    if (argDiff.getExpr_dx() && arg->isXValue() &&
+        argDiff.getExpr_dx()->isLValue()) {
+      llvm::SmallVector<Expr*, 1> moveArg = {argDiff.getExpr_dx()};
+      Expr* moveCall = GetFunctionCall("move", "std", moveArg);
+      result.updateRevSweep(moveCall);
     }
 
     // Save cloned arg in a "global" variable, so that it is accessible from
@@ -1885,18 +1890,19 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     // Method operators have a base like methods do but it's included in the
     // call arguments so we have to shift the indexing of call arguments.
     bool isMethodOperatorCall = MD && isa<CXXOperatorCallExpr>(CE);
-
+    llvm::SmallVector<Expr*, 16> revForwAdjointArgs{};
     for (std::size_t i = static_cast<std::size_t>(isMethodOperatorCall),
                      e = CE->getNumArgs();
          i != e; ++i) {
       const Expr* arg = CE->getArg(i);
       const auto* PVD = FD->getParamDecl(
           i - static_cast<unsigned long>(isMethodOperatorCall));
-      StmtDiff argDiff = DifferentiateCallArg(arg, PVD, PreCallStmts,
+      StmtDiff argDiff = DifferentiateCallArg(arg, PVD, PreCallStmts, false,
                                               isa<CUDAKernelCallExpr>(CE));
       CallArgDx.push_back(argDiff.getExpr_dx());
       CallArgs.push_back(argDiff.getExpr());
       DerivedCallArgs.push_back(argDiff.getExpr());
+      revForwAdjointArgs.push_back(argDiff.getRevSweepAsExpr());
       if (m_DiffReq.shouldBeRecorded(arg))
         hasStoredParams = true;
     }
@@ -1956,6 +1962,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
           baseDerivative =
               BuildOp(UnaryOperatorKind::UO_AddrOf, baseDerivative);
         DerivedCallOutputArgs.push_back(baseDerivative);
+        revForwAdjointArgs.insert(revForwAdjointArgs.begin(), baseDerivative);
       }
     }
 
@@ -2170,18 +2177,8 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     FunctionDecl* calleeFnForwPassFD = FindDerivedFunction(calleeFnForwPassReq);
     if (calleeFnForwPassFD && !hasDynamicNonDiffParams &&
         (hasStoredParams || needsForwPass)) {
-      for (std::size_t i = 0, e = CE->getNumArgs() - isMethodOperatorCall;
-           i != e; ++i) {
-        const Expr* arg = CE->getArg(i + isMethodOperatorCall);
-        if (!utils::IsReferenceOrPointerArg(arg) || arg->isXValue())
-          CallArgDx[i] = getZeroInit(arg->getType());
-      }
-      if (baseDiff.getExpr_dx() &&
-          !baseDiff.getExpr_dx()->getType()->isPointerType())
-        CallArgDx.insert(
-            CallArgDx.begin(),
-            BuildOp(UnaryOperatorKind::UO_AddrOf, baseDiff.getExpr_dx(), Loc));
-      CallArgs.insert(CallArgs.end(), CallArgDx.begin(), CallArgDx.end());
+      CallArgs.insert(CallArgs.end(), revForwAdjointArgs.begin(),
+                      revForwAdjointArgs.end());
       const auto* forwPassMD = dyn_cast<CXXMethodDecl>(calleeFnForwPassFD);
       Expr* baseE = baseDiff.getExpr();
       Expr* trackerExpr = nullptr;
