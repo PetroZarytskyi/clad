@@ -1502,38 +1502,64 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     return StmtDiff(Clone(FL));
   }
 
+  static bool isNAT(QualType T) {
+    T = utils::GetValueType(T);
+    if (const auto* RT = T->getAs<RecordType>()) {
+      const RecordDecl* RD = RT->getDecl();
+      if (RD->getNameAsString() == "__nat")
+        return true;
+    }
+    return false;
+  }
+
   StmtDiff ReverseModeVisitor::DifferentiateCallArg(
       const Expr* arg, const ParmVarDecl* param,
-      llvm::SmallVectorImpl<clang::Stmt*>& PreCallStmts, bool isCUDAKernel) {
+      llvm::SmallVectorImpl<clang::Stmt*>& PreCallStmts, bool isNonDiff,
+      bool isCUDAKernel) {
     StmtDiff result;
     StmtDiff argDiff{};
+    // FIXME: We handle parameters with default values by setting them
+    // explicitly. However, some of them have private types and cannot be set.
+    // For this reason, we ignore std::__nat. We need to come up with a
+    // general solution.
+    if (isNAT(arg->getType()))
+      return {};
+
+    if (clad::utils::hasNonDifferentiableAttribute(arg))
+      isNonDiff = true;
     // We do not need to create result arg for arguments passed by reference
     // because the derivatives of arguments passed by reference are directly
     // modified by the derived callee function.
-    if (utils::IsReferenceOrPointerArg(arg)) {
+    if (utils::IsReferenceOrPointerArg(arg) || isNonDiff) {
       argDiff = Visit(arg);
       result.updateStmtDx(argDiff.getExpr_dx());
-    } else if (!clad::utils::hasNonDifferentiableAttribute(arg)) {
+      result.updateRevSweep(argDiff.getExpr_dx());
+    } else {
       // Create temporary variables corresponding to derivative of each
       // argument, so that they can be referred to when arguments is visited.
       // Variables will be initialized later after arguments is visited. This
       // is done to reduce cloning complexity and only clone once. The type is
       // same as the call expression as it is the type used to declare the
       // _gradX array
-      QualType dArgTy = utils::getNonConstType(arg->getType(), m_Sema);
+      QualType dArgTy =
+          utils::getNonConstType(CloneType(arg->getType()), m_Sema);
+      Expr* init = getStdInitListSizeExpr(arg);
       bool shouldCopyInitialize = false;
-      if (const CXXRecordDecl* CRD = dArgTy->getAsCXXRecordDecl())
-        shouldCopyInitialize = utils::isCopyable(CRD);
-      Expr* rInit = getZeroInit(dArgTy);
-      // Temporarily initialize the object with `*nullptr` to avoid
-      // a potential error because of non-existing default constructor.
-      if (shouldCopyInitialize) {
-        QualType ptrType =
-            m_Context.getPointerType(dArgTy.getUnqualifiedType());
-        Expr* dummy = getZeroInit(ptrType);
-        rInit = BuildOp(UO_Deref, dummy);
+      if (!init) {
+        if (const CXXRecordDecl* CRD = dArgTy->getAsCXXRecordDecl())
+          shouldCopyInitialize = utils::isCopyable(CRD);
+        // Temporarily initialize the object with `*nullptr` to avoid
+        // a potential error because of non-existing default constructor.
+        if (shouldCopyInitialize) {
+          QualType ptrType =
+              m_Context.getPointerType(dArgTy.getUnqualifiedType());
+          Expr* dummy = getZeroInit(ptrType);
+          init = BuildOp(UO_Deref, dummy);
+        }
       }
-      VarDecl* dArgDecl = BuildVarDecl(dArgTy, "_r", rInit);
+      if (!init)
+        init = getZeroInit(dArgTy);
+      VarDecl* dArgDecl = BuildVarDecl(dArgTy, "_r", init);
       PreCallStmts.push_back(BuildDeclStmt(dArgDecl));
       DeclRefExpr* dArgRef = BuildDeclRef(dArgDecl);
       if (isCUDAKernel) {
@@ -1610,8 +1636,20 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         else
           SetDeclInit(dArgDecl, getZeroInit(dArgTy));
       }
-    } else {
-      argDiff = Visit(arg);
+      if (argDiff.getExpr_dx())
+        result.updateRevSweep(argDiff.getExpr_dx());
+      else
+        result.updateRevSweep(getZeroInit(arg->getType()));
+    }
+
+    // If a function returns an object by value, there
+    // are an implicit move constructor and an implicit
+    // cast to XValue. However, when providing arguments,
+    // we have to cast explicitly with std::move.
+    if (arg->isXValue() && argDiff.getExpr()->isLValue()) {
+      llvm::SmallVector<Expr*, 1> moveArg = {argDiff.getExpr()};
+      Expr* moveCall = GetFunctionCall("move", "std", moveArg);
+      argDiff.updateStmt(moveCall);
     }
 
     // Save cloned arg in a "global" variable, so that it is accessible from
@@ -4271,16 +4309,6 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     return {nullptr, nullptr};
   }
 
-  static bool isNAT(QualType T) {
-    T = utils::GetValueType(T);
-    if (const auto* RT = T->getAs<RecordType>()) {
-      const RecordDecl* RD = RT->getDecl();
-      if (RD->getNameAsString() == "__nat")
-        return true;
-    }
-    return false;
-  }
-
   StmtDiff
   ReverseModeVisitor::VisitCXXConstructExpr(const CXXConstructExpr* CE) {
     CXXConstructorDecl* CD = CE->getConstructor();
@@ -4319,91 +4347,22 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       }
     }
 
-    // FIXME: This logic is the same as in VisitCallExpr.
-    // We should probably move this to a file static
-    // FIXME: Restore arguments passed as non-const reference.
     for (std::size_t i = 0, e = CE->getNumArgs(); i != e; ++i) {
       const Expr* arg = CE->getArg(i);
-      QualType ArgTy = arg->getType();
-      // FIXME: We handle parameters with default values by setting them
-      // explicitly. However, some of them have private types and cannot be set.
-      // For this reason, we ignore std::__nat. We need to come up with a
-      // general solution.
-      if (isNAT(ArgTy))
-        break;
-      StmtDiff argDiff{};
-      Expr* adjointArg = nullptr;
-      if (utils::IsReferenceOrPointerArg(arg) || nonDiff) {
-        argDiff = Visit(arg);
-        adjointArg = argDiff.getExpr_dx();
-      } else {
-        // non-reference arguments are differentiated as follows:
-        //
-        // primal code:
-        // ```
-        // SomeClass c(u, ...);
-        // ```
-        //
-        // Derivative code:
-        // ```
-        // // forward pass
-        // ...
-        // // reverse pass
-        // double _r0 = 0;
-        // SomeClass_pullback(c, u, ..., &_d_c, &_r0, ...);
-        // _d_u += _r0;
-        QualType dArgTy = utils::getNonConstType(CloneType(ArgTy), m_Sema);
-        Expr* init = getStdInitListSizeExpr(arg);
-        bool shouldCopyInitialize = false;
-        if (!init) {
-          if (const CXXRecordDecl* CRD = dArgTy->getAsCXXRecordDecl())
-            shouldCopyInitialize = utils::isCopyable(CRD);
-          // Temporarily initialize the object with `*nullptr` to avoid
-          // a potential error because of non-existing default constructor.
-          if (shouldCopyInitialize) {
-            QualType ptrType =
-                m_Context.getPointerType(dArgTy.getUnqualifiedType());
-            Expr* dummy = getZeroInit(ptrType);
-            init = BuildOp(UO_Deref, dummy);
-          }
-        }
-        if (!init)
-          init = getZeroInit(dArgTy);
-        VarDecl* dArgDecl = BuildVarDecl(dArgTy, "_r", init);
-        prePullbackCallStmts.push_back(BuildDeclStmt(dArgDecl));
-        adjointArg = BuildDeclRef(dArgDecl);
-        argDiff = Visit(arg, BuildDeclRef(dArgDecl));
-        if (shouldCopyInitialize) {
-          if (Expr* dInit = argDiff.getExpr_dx())
-            SetDeclInit(dArgDecl, dInit);
-          else
-            SetDeclInit(dArgDecl, getZeroInit(dArgTy));
-        }
-      }
-
-      if (utils::isArrayOrPointerType(CD->getParamDecl(i)->getType()) ||
-          nonDiff) {
-        reverseForwAdjointArgs.push_back(adjointArg);
-        adjointArgs.push_back(adjointArg);
-      } else {
-        if (argDiff.getExpr_dx())
-          reverseForwAdjointArgs.push_back(argDiff.getExpr_dx());
+      QualType argTy = arg->getType();
+      const ParmVarDecl* PVD = CD->getParamDecl(i);
+      StmtDiff argDiff = DifferentiateCallArg(arg, PVD, prePullbackCallStmts,
+                                              /*isNonDiff=*/nonDiff);
+      if (!nonDiff) {
+        if (!utils::isArrayOrPointerType(argTy))
+          adjointArgs.push_back(BuildOp(UnaryOperatorKind::UO_AddrOf,
+                                        argDiff.getExpr_dx(),
+                                        m_DiffReq->getLocation()));
         else
-          reverseForwAdjointArgs.push_back(getZeroInit(ArgTy));
-        adjointArgs.push_back(BuildOp(UnaryOperatorKind::UO_AddrOf, adjointArg,
-                                      m_DiffReq->getLocation()));
+          adjointArgs.push_back(argDiff.getExpr_dx());
       }
-      // If a function returns an object by value, there
-      // are an implicit move constructor and an implicit
-      // cast to XValue. However, when providing arguments,
-      // we have to cast explicitly with std::move.
-      if (arg->isXValue() && argDiff.getExpr()->isLValue()) {
-        llvm::SmallVector<Expr*, 1> moveArg = {argDiff.getExpr()};
-        Expr* moveCall = GetFunctionCall("move", "std", moveArg);
-        primalArgs.push_back(moveCall);
-      } else {
-        primalArgs.push_back(argDiff.getExpr());
-      }
+      primalArgs.push_back(argDiff.getExpr());
+      reverseForwAdjointArgs.push_back(argDiff.getRevSweepAsExpr());
     }
 
     const CXXRecordDecl* RD = CD->getParent();

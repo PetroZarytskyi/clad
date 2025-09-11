@@ -487,7 +487,7 @@ namespace clad {
     DifferentiateCallArg(const clang::Expr* arg,
                          const clang::ParmVarDecl* param,
                          llvm::SmallVectorImpl<clang::Stmt*>& PreCallStmts,
-                         bool isCUDAKernel = false);
+                         bool isNonDiff, bool isCUDAKernel = false);
     /// Shorthand for warning on differentiation of unsupported operators
     void unsupportedOpWarn(clang::SourceLocation loc,
                            llvm::ArrayRef<llvm::StringRef> args = {}) {
