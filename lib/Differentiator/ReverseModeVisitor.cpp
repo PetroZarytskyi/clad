@@ -1640,6 +1640,11 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       result.updateRevSweep(argDiff.getExpr_dx());
     else
       result.updateRevSweep(getZeroInit(arg->getType()));
+    QualType paramTy = param->getType();
+    if (Expr* adjointArg = result.getExpr_dx())
+      if (!(isNonDiff || utils::isArrayOrPointerType(paramTy) || isCUDAKernel))
+        result.updateStmtDx(
+            BuildOp(UO_AddrOf, adjointArg, m_DiffReq->getLocation()));
 
     // If a function returns an object by value, there
     // are an implicit move constructor and an implicit
@@ -1671,7 +1676,6 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     // ```
     // FIXME: Handle storing data passed through pointers and structures.
     // FIXME: Improve TBR to handle these stores.
-    QualType paramTy = param->getType();
     bool passByRef = paramTy->isLValueReferenceType() &&
                      !paramTy.getNonReferenceType().isConstQualified();
     if (passByRef && m_DiffReq.shouldBeRecorded(arg)) {
@@ -1898,14 +1902,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
                                isa<CUDAKernelCallExpr>(CE));
       CallArgs.push_back(argDiff.getExpr());
       revForwAdjointArgs.push_back(argDiff.getRevSweepAsExpr());
-      Expr* argDerivative = argDiff.getExpr_dx();
-      if (!argDerivative || utils::isArrayOrPointerType(PVD->getType()) ||
-          isCladArrayType(argDerivative->getType()) ||
-          isa<CUDAKernelCallExpr>(CE))
-        CallArgDx.push_back(argDerivative);
-      else
-        CallArgDx.push_back(
-            BuildOp(UO_AddrOf, argDerivative, m_DiffReq->getLocation()));
+      CallArgDx.push_back(argDiff.getExpr_dx());
       if (m_DiffReq.shouldBeRecorded(arg))
         hasStoredParams = true;
     }
@@ -1962,8 +1959,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       }
     }
 
-    // It is required because call to numerical diff and reverse mode diff
-    // requires (slightly) different arguments.
+    // Build the args for the pullback
     llvm::SmallVector<Expr*, 16> pullbackCallArgs = CallArgs;
     QualType nonRefRetTy = returnType.getNonReferenceType();
     if (!(nonRefRetTy->isPointerType() || nonRefRetTy->isVoidType())) {
@@ -4324,18 +4320,10 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
 
     for (std::size_t i = 0, e = CE->getNumArgs(); i != e; ++i) {
       const Expr* arg = CE->getArg(i);
-      QualType argTy = arg->getType();
       const ParmVarDecl* PVD = CD->getParamDecl(i);
       StmtDiff argDiff = DifferentiateCallArg(arg, PVD, prePullbackCallStmts,
                                               /*isNonDiff=*/nonDiff);
-      if (!nonDiff) {
-        if (!utils::isArrayOrPointerType(argTy))
-          adjointArgs.push_back(BuildOp(UnaryOperatorKind::UO_AddrOf,
-                                        argDiff.getExpr_dx(),
-                                        m_DiffReq->getLocation()));
-        else
-          adjointArgs.push_back(argDiff.getExpr_dx());
-      }
+      adjointArgs.push_back(argDiff.getExpr_dx());
       primalArgs.push_back(argDiff.getExpr());
       reverseForwAdjointArgs.push_back(argDiff.getRevSweepAsExpr());
     }
