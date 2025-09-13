@@ -72,7 +72,7 @@ int main() {
     printf("Copy Grad d_src: %.3f %.3f %.3f %.3f\n", h_src_grad[0], h_src_grad[1], h_src_grad[2], h_src_grad[3]);
     // CHECK-EXEC: Copy Grad d_src: 1.000 1.000 1.000 1.000
     printf("Copy Grad d_dst: %.3f %.3f %.3f %.3f\n", h_dst_grad[0], h_dst_grad[1], h_dst_grad[2], h_dst_grad[3]);
-    // CHECK-EXEC: Copy Grad d_dst: 0.000 0.000 0.000 0.000
+    // CHECK-EXEC: Copy Grad d_dst: 1.000 1.000 1.000 1.000
 
 
     thrust::device_vector<double> d_src_input2 = h_src;
@@ -90,7 +90,7 @@ int main() {
     printf("Copy with return value stored Grad d_src: %.3f %.3f %.3f %.3f\n", h_src_grad2[0], h_src_grad2[1], h_src_grad2[2], h_src_grad2[3]);
     // CHECK-EXEC: Copy with return value stored Grad d_src: 1.000 1.000 1.000 1.000
     printf("Copy with return value stored Grad d_dst: %.3f %.3f %.3f %.3f\n", h_dst_grad2[0], h_dst_grad2[1], h_dst_grad2[2], h_dst_grad2[3]);
-    // CHECK-EXEC: Copy with return value stored Grad d_dst: 0.000 0.000 0.000 0.000
+    // CHECK-EXEC: Copy with return value stored Grad d_dst: 1.000 1.000 1.000 1.000
 
     return 0;
 }

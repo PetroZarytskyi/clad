@@ -450,7 +450,6 @@ inline void deep_copy_pullback(
                                  ::Kokkos::ViewTraits<ViewArgs1...>::rank>::
       run(dst, [&d_src, &d_dst](auto&&... args) {
         (*d_src)(args...) += (*d_dst)(args...);
-        (*d_dst)(args...) = 0;
       });
 }
 

@@ -40,7 +40,6 @@ void copy_pullback(Iterator first, Iterator last, OutputIterator result,
   struct copy_grad_functor {
     CUDA_HOST_DEVICE void operator()(::thrust::tuple<Value&, Value&> t) const {
       ::thrust::get<0>(t) += ::thrust::get<1>(t);
-      ::thrust::get<1>(t) = 0;
     }
   };
 
