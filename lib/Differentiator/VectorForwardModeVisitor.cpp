@@ -323,7 +323,7 @@ VectorForwardModeVisitor::CreateVectorModeOverload(FunctionDecl* derivative) {
     addToCurrentBlock(BuildDeclStmt(vectorModeVD));
   }
 
-  Expr* callExpr = BuildCallExprToFunction(derivative, callArgs,
+  Expr* callExpr = BuildCallExprToFunction(derivative, callArgs, nullptr,
                                            /*UseRefQualifiedThisObj=*/true);
   addToCurrentBlock(callExpr);
   Stmt* vectorModeOverloadBody = endBlock();

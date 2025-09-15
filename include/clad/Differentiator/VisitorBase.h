@@ -534,6 +534,7 @@ namespace clad {
     clang::Expr*
     BuildCallExprToFunction(clang::FunctionDecl* FD,
                             llvm::MutableArrayRef<clang::Expr*> argExprs,
+                            clang::Expr* CUDAExecConfig = nullptr,
                             bool useRefQualifiedThisObj = false);
 
     /// Build a call to templated free function inside the clad namespace.
