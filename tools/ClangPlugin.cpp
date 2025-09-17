@@ -287,6 +287,11 @@ void InitTimers();
           auto deriveResult = m_DerivativeBuilder->Derive(request);
           DerivativeDecl = cast_or_null<FunctionDecl>(deriveResult.derivative);
           OverloadedDerivativeDecl = deriveResult.overload;
+          // FIXME: Doing this with other function types might lead to
+          // accidental numerical diff.
+          if (isa<CXXConstructorDecl>(FD) &&
+              utils::hasEmptyBody(DerivativeDecl))
+            return nullptr;
           if (DerivativeDecl)
             m_DFC.Add(DerivedFnInfo(request, DerivativeDecl,
                                     OverloadedDerivativeDecl));
