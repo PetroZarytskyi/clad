@@ -2721,18 +2721,17 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     bool promoteToFnScope =
         !getCurrentScope()->isFunctionScope() &&
         m_DiffReq.Mode != DiffMode::reverse_mode_forward_pass && !keepLocal;
-    QualType VDCloneType;
-    QualType VDDerivedType;
     QualType VDType = VD->getType();
+    QualType VDCloneType = CloneType(VDType);
     // If the cloned declaration is moved to the function global scope,
-    // change its type for the corresponding adjoint type.
+    // change its type to make it reassignable.
     if (promoteToFnScope) {
-      VDDerivedType = ComputeAdjointType(CloneType(VDType));
-      VDCloneType = VDDerivedType;
-    } else {
-      VDCloneType = CloneType(VDType);
-      VDDerivedType = utils::getNonConstType(VDCloneType, m_Sema);
+      if (VDCloneType->isReferenceType())
+        VDCloneType =
+            m_Context.getPointerType(VDCloneType.getNonReferenceType());
+      VDCloneType.removeLocalConst();
     }
+    QualType VDDerivedType = utils::getNonConstType(VDCloneType, m_Sema);
 
     bool isRefType = VDType->isLValueReferenceType();
     VarDecl* VDDerived = nullptr;
@@ -4508,15 +4507,6 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
   DeclDiff<StaticAssertDecl> ReverseModeVisitor::DifferentiateStaticAssertDecl(
       const clang::StaticAssertDecl* SAD) {
     return DeclDiff<StaticAssertDecl>(nullptr, nullptr);
-  }
-
-  clang::QualType ReverseModeVisitor::ComputeAdjointType(clang::QualType T) {
-    if (T->isReferenceType()) {
-      QualType TValueType = utils::GetNonConstValueType(T);
-      return m_Context.getPointerType(TValueType);
-    }
-    T.removeLocalConst();
-    return T;
   }
 
   static bool needsDThis(const FunctionDecl* FD) {
