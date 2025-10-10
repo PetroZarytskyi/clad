@@ -100,7 +100,8 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     E = E->IgnoreImplicit();
     if (type.isNull())
       type = E->getType();
-    QualType TapeType = GetCladTapeOfType(utils::getNonConstType(type, m_Sema));
+    type.removeLocalConst();
+    QualType TapeType = GetCladTapeOfType(type);
     LookupResult& Push = GetCladTapePush();
     LookupResult& Pop = GetCladTapePop();
     Expr* TapeRef =
@@ -2781,18 +2782,6 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       bool constPointer = VDType->getPointeeType().isConstQualified();
       if (constPointer && !isInitializedByNewExpr && !initDiff.getExpr_dx())
         initializeDerivedVar = false;
-      else {
-        VDDerivedType = utils::getNonConstType(VDDerivedType, m_Sema);
-        // If it's a pointer to a constant type, then remove the constness.
-        if (constPointer) {
-          // first extract the pointee type
-          auto pointeeType = VDType->getPointeeType();
-          // then remove the constness
-          pointeeType.removeLocalConst();
-          // then create a new pointer type with the new pointee type
-          VDDerivedType = m_Context.getPointerType(pointeeType);
-        }
-      }
     }
 
     // Temporarily initialize the object with `*nullptr` to avoid
@@ -3487,7 +3476,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
                                                llvm::StringRef prefix,
                                                bool moveToTape) {
     assert(E && "must be provided");
-    auto Type = utils::getNonConstType(E->getType(), m_Sema);
+    QualType Type = E->getType();
 
     Stmt* Store = nullptr;
     Stmt* Restore = nullptr;
@@ -3495,7 +3484,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     Expr* Ref = nullptr;
     if (isInsideLoop) {
       Expr* clone = Clone(E);
-      if (moveToTape && E->getType()->isRecordType()) {
+      if (moveToTape && Type->isRecordType()) {
         llvm::SmallVector<Expr*, 1> args = {clone};
         clone = GetFunctionCall("move", "std", args);
       }
