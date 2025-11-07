@@ -378,7 +378,13 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         m_Derivative->setLexicalDeclContext(RD->getParent());
       }
     }
+    m_Derivative->dump();
+    clang::LangOptions LangOpts;
+    LangOpts.CPlusPlus = true;
+    clang::PrintingPolicy Policy(LangOpts);
+    Policy.Bool = true;
 
+    m_Derivative->print(llvm::errs(), Policy);
     if (!shouldCreateOverload)
       return DerivativeAndOverload{result.first, /*overload=*/nullptr};
 
@@ -1381,6 +1387,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       base = UO->getSubExpr()->IgnoreImpCasts();
     if (shouldUseCudaAtomicOps(base))
       return BuildCallToCudaAtomicAdd(E, dfdx());
+    E->dump();
     return BuildOp(BO_AddAssign, E, dfdx());
   }
 
@@ -1420,6 +1427,8 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     // Check if referenced Decl was "replaced" with another identifier inside
     // the derivative
     if (auto* VD = dyn_cast<VarDecl>(cast<DeclRefExpr>(clonedDRE)->getDecl())) {
+       
+      llvm::errs() << "DEBUG VarDecl start\n";
       // If current context is different than the context of the original
       // declaration (e.g. we are inside lambda), rebuild the DeclRefExpr
       // with Sema::BuildDeclRefExpr. This is required in some cases, e.g.
@@ -1465,16 +1474,19 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
                                          getZeroInit(foundExpr->getType()));
             addToBlock(assignToZero, m_Globals);
           }
-        } else
+        } else{
+      llvm::errs() << "DEBUG VarDecl end 1\n";
           // Is not an independent variable, ignored.
-          return StmtDiff(clonedDRE);
+          return StmtDiff(clonedDRE);}
       }
 
+      llvm::errs() << "DEBUG VarDecl end 2\n";
       if (!it->second)
         return StmtDiff(clonedDRE);
       // Create the (_d_param[idx] += dfdx) statement.
       if (Expr* add_assign = BuildDiffIncrement(it->second))
         addToCurrentBlock(add_assign, direction::reverse);
+      llvm::errs() << "DEBUG VarDecl end 3\n";
       return StmtDiff(clonedDRE, it->second);
     }
 
@@ -2303,6 +2315,8 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       Expr* derivedE = BuildOp(UnaryOperatorKind::UO_AddrOf, diff.getExpr_dx());
       return {cloneE, derivedE};
     } else if (opCode == UnaryOperatorKind::UO_Deref) {
+      llvm::errs() << "DEBUG DEREF start\n";
+      E->dump();
       diff = Visit(E);
       Expr* cloneE = BuildOp(UnaryOperatorKind::UO_Deref, diff.getExpr());
 
@@ -2314,9 +2328,13 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
 
       Expr* diff_dx = diff.getExpr_dx();
       Expr* derivedE = BuildOp(UnaryOperatorKind::UO_Deref, diff_dx);
+      diff_dx->dump();
       // Create the (target += dfdx) statement.
+      llvm::errs() << "DEBUG WILD GUESS\n";
+      derivedE->dump();
       if (Expr* add_assign = BuildDiffIncrement(derivedE))
         addToCurrentBlock(add_assign, direction::reverse);
+      llvm::errs() << "DEBUG DEREF end\n";
       return {cloneE, derivedE};
     } else {
       if (opCode != UO_LNot)
@@ -2451,6 +2469,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       addToCurrentBlock(utils::unwrapIfSingleStmt(LPop), direction::reverse);
       std::tie(Ldiff, Rdiff) = std::make_pair(LStored, RResult);
     } else if (BinOp->isAssignmentOp()) {
+    llvm::errs() << "DEBUG assignment begin\n";
       if (L->isModifiableLvalue(m_Context) != Expr::MLV_Valid) {
         diag(DiagnosticsEngine::Warning,
              BinOp->getEndLoc(),
@@ -2459,10 +2478,12 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         return Clone(BinOp);
       }
 
+      llvm::errs() << "DEBUG LHS1\n";
       // Visit LHS, but delay emission of its derivative statements, save them
       // in Lblock
       beginBlock(direction::reverse);
       Ldiff = Visit(L, dfdx());
+      llvm::errs() << "DEBUG LHS2\n";
 
       if (L->HasSideEffects(m_Context)) {
         Expr* E = Ldiff.getExpr();
@@ -2541,10 +2562,13 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         Expr* assign_zero = BuildOp(BO_Assign, ResultRef, zero);
         if (!isPointerOp && !indepSides)
           addToCurrentBlock(assign_zero, direction::reverse);
+      llvm::errs() << "DEBUG RHS1\n";
         Rdiff = Visit(R, oldValue);
+      llvm::errs() << "DEBUG RHS2\n";
         if (indepSides)
           addToCurrentBlock(assign_zero, direction::reverse);
         valueForRevPass = Rdiff.getRevSweepAsExpr();
+      llvm::errs() << "DEBUG assignment middle\n";
       } else if (opCode == BO_AddAssign) {
         Rdiff = Visit(R, oldValue);
         if (!isPointerOp)
@@ -2620,9 +2644,12 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
         m_ExternalSource->ActBeforeFinalizingAssignOp(LCloned, ResultRef, R,
                                                       opCode);
 
+      llvm::errs() << "DEBUG assignment end (almost1)\n";
       // Output statements from Visit(L).
       for (Stmt* S : Lblock)
         addToCurrentBlock(S, direction::reverse);
+      
+      llvm::errs() << "DEBUG assignment end (almost)\n";
     } else if (opCode == BO_Comma) {
       auto* zero =
           ConstantFolder::synthesizeLiteral(m_Context.IntTy, m_Context, 0);
@@ -2689,6 +2716,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
             addToCurrentBlock(memsetCall, direction::forward);
       }
     }
+      llvm::errs() << "DEBUG assignment end\n";
     return StmtDiff(op, ResultRef, valueForRevPass);
   }
 
@@ -2982,6 +3010,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
   }
 
   StmtDiff ReverseModeVisitor::VisitDeclStmt(const DeclStmt* DS) {
+    llvm::errs() << "DEBUG VisitDeclStmt begin\n";
     llvm::SmallVector<Stmt*, 16> inits;
     llvm::SmallVector<Decl*, 4> decls;
     llvm::SmallVector<Decl*, 4> declsDiff;
@@ -3183,20 +3212,26 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       m_ExternalSource->ActBeforeFinalizingVisitDeclStmt(decls, declsDiff);
     }
 
+    llvm::errs() << "DEBUG VisitDeclStmt end\n";
     return StmtDiff(DSClone);
   }
 
   StmtDiff
   ReverseModeVisitor::VisitImplicitCastExpr(const ImplicitCastExpr* ICE) {
+      llvm::errs() << "DEBUG CAST start\n";
     // Casts should be handled automatically when the result is used by
     // Sema::ActOn.../Build...
     StmtDiff result = Visit(ICE->getSubExpr(), dfdx());
+    result.getExpr_dx()->dump();
     // In the forward pass, builtin-type derivatives are always zero.
     // We can replace rvalue builtin types with zeros for simplicity,
     // e.g., `double _d_x = 0.` looks simpler than `double _d_x = _d_y`.
+    // llvm::errs() << (ICE->getType()) << ": " << (ICE->getType()->isBuiltinType()) << "\n";
     if (ICE->getType()->isBuiltinType() &&
-        ICE->getCastKind() == CK_LValueToRValue)
-      result.updateStmtDx(getZeroInit(ICE->getType()));
+        ICE->getCastKind() == CK_LValueToRValue){
+      llvm::errs() << "DEBUG CAST middle\n";
+      result.updateStmtDx(getZeroInit(ICE->getType()));}
+      llvm::errs() << "DEBUG CAST end\n";
     return result;
   }
 
