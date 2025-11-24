@@ -434,7 +434,7 @@ MyStruct fn12(MyStruct s) {  // expected-warning {{clad::gradient only supports 
 // CHECK-NEXT:}
 
 // CHECK: void fn12_grad(MyStruct s, MyStruct *_d_s) {
-// CHECK-NEXT:     clad::restore_tracker _tracker0 = {};
+// CHECK-NEXT:     clad::restore_tracker _tracker0;
 // CHECK-NEXT:     s.operator_equal_reverse_forw({2 * s.a, 2 * s.b + 2}, _d_s, {0., 0.}, _tracker0);
 // CHECK-NEXT:    {
 // CHECK-NEXT:        _tracker0.restore();
@@ -722,7 +722,7 @@ void fn20(MyStruct s) {
 }
 
 // CHECK: void fn20_grad(MyStruct s, MyStruct *_d_s) {
-// CHECK-NEXT:     clad::restore_tracker _tracker0 = {};
+// CHECK-NEXT:     clad::restore_tracker _tracker0;
 // CHECK-NEXT:     s.operator_equal_reverse_forw({2 * s.a, 2 * s.b + 2}, _d_s, {0., 0.}, _tracker0);
 // CHECK-NEXT:    {
 // CHECK-NEXT:        _tracker0.restore();
@@ -988,7 +988,7 @@ struct MyStructWrapper {
 // CHECK-NEXT:  }
 
 // CHECK:  inline constexpr void operator_equal_pullback(MyStructWrapper &&arg, MyStructWrapper *_d_this, MyStructWrapper *_d_arg) noexcept {
-// CHECK-NEXT:      clad::restore_tracker _tracker0 = {};
+// CHECK-NEXT:      clad::restore_tracker _tracker0;
 // CHECK-NEXT:      this->val.operator_equal_reverse_forw(static_cast<MyStructWrapper &&>(arg).val, &_d_this->val, std::move((*_d_arg).val), _tracker0);
 // CHECK-NEXT:      {
 // CHECK-NEXT:          _tracker0.restore();
@@ -1005,7 +1005,7 @@ double fn27(double x, double y) {
 // CHECK:  void fn27_grad(double x, double y, double *_d_x, double *_d_y) {
 // CHECK-NEXT:      MyStructWrapper _d_s = {{.*0., 0..*}};
 // CHECK-NEXT:      MyStructWrapper s;
-// CHECK-NEXT:      clad::restore_tracker _tracker0 = {};
+// CHECK-NEXT:      clad::restore_tracker _tracker0;
 // CHECK-NEXT:      s.operator_equal_reverse_forw({{.*2 \* y, 3 \* x \+ 2.*}}, &_d_s, {{.*0., 0..*}}, _tracker0);
 // CHECK-NEXT:      {
 // CHECK-NEXT:          _d_s.val.a += 1 * s.val.b;

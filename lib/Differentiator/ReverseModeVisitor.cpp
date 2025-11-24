@@ -99,8 +99,9 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
   ReverseModeVisitor::CladTapeResult
   ReverseModeVisitor::MakeCladTapeFor(Expr* E, llvm::StringRef prefix,
                                       clang::QualType type) {
-    assert(E && "must be provided");
-    E = E->IgnoreImplicit();
+    assert((E || !type.isNull()) && "must be provided");
+    if (E)
+      E = E->IgnoreImplicit();
     if (type.isNull())
       type = E->getType();
     type.removeLocalConst();
@@ -125,7 +126,9 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
     Expr* PopExpr =
         m_Sema.ActOnCallExpr(getCurrentScope(), PopDRE, noLoc, TapeRef, noLoc)
             .get();
-    Expr* CallArgs[] = {TapeRef, E};
+    llvm::SmallVector<Expr*, 1> CallArgs = {TapeRef};
+    if (E)
+      CallArgs.push_back(E);
     Expr* PushExpr =
         m_Sema.ActOnCallExpr(getCurrentScope(), PushDRE, noLoc, CallArgs, noLoc)
             .get();
@@ -2194,7 +2197,7 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
                       revForwAdjointArgs.end());
       // Build the restore_tracker parameter
       // ```
-      // clad::restore_tracker _tracker0 = {};
+      // clad::restore_tracker _tracker0;
       // f_reverse_forw(..., _tracker0);
       // ...
       // _tracker0.restore();
@@ -2211,13 +2214,11 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
           trackerExpr = m_RestoreTracker;
         } else {
           // Otherwise, generate the declaration
-          // ``clad::restore_tracker _tracker0 = {};``
-          VarDecl* trackerDecl =
-              BuildVarDecl(trackerType, "_tracker", getZeroInit(trackerType));
-          addToCurrentBlock(BuildDeclStmt(trackerDecl));
-          trackerExpr = BuildDeclRef(trackerDecl);
+          // ``clad::restore_tracker _tracker0;``
+          trackerExpr = GlobalStoreAndRef(
+              nullptr, trackerType, /*prefix=*/"_tracker", /*force*/ true);
           Expr* restoreCall = BuildCallExprToMemFn(
-              BuildDeclRef(trackerDecl), /*MemberFunctionName=*/"restore",
+              Clone(trackerExpr), /*MemberFunctionName=*/"restore",
               /*ArgExprs=*/{}, Loc);
           it = std::begin(block) + insertionPoint;
           block.insert(it, restoreCall);
@@ -3449,9 +3450,8 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
   Expr* ReverseModeVisitor::GlobalStoreAndRef(Expr* E, QualType Type,
                                               llvm::StringRef prefix,
                                               bool force) {
-    assert(E && "must be provided, otherwise use DelayedGlobalStoreAndRef");
     assert(!isa<ArrayType>(Type) && "Array types cannot be stored.");
-    if (!force && !UsefulToStoreGlobal(E))
+    if (!force && E && !UsefulToStoreGlobal(E))
       return E;
 
     if (isInsideLoop) {
@@ -3472,8 +3472,10 @@ Expr* ReverseModeVisitor::getStdInitListSizeExpr(const Expr* E) {
       SetDeclInit(VD, E);
     } else {
       addToBlock(decl, m_Globals);
-      Expr* Set = BuildOp(BO_Assign, Ref, E);
-      addToCurrentBlock(Set, direction::forward);
+      if (E) {
+        Expr* Set = BuildOp(BO_Assign, Ref, E);
+        addToCurrentBlock(Set, direction::forward);
+      }
     }
 
     return Ref;

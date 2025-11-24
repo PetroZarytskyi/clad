@@ -715,9 +715,9 @@ int main() {
 // CHECK-NEXT:              _t2++;
 // CHECK-NEXT:              res += v.at(i0);
 // CHECK-NEXT:          }
-// CHECK-NEXT:          clad::restore_tracker _tracker0 = {};
+// CHECK-NEXT:          clad::restore_tracker _tracker0;
 // CHECK-NEXT:          v.assign_reverse_forw(3, 0, &_d_v, 0, 0, _tracker0);
-// CHECK-NEXT:          clad::restore_tracker _tracker1 = {};
+// CHECK-NEXT:          clad::restore_tracker _tracker1;
 // CHECK-NEXT:          v.assign_reverse_forw(2, y, &_d_v, 0, *_d_y, _tracker1);
 // CHECK-NEXT:          {
 // CHECK-NEXT:              _d_res += 1;
