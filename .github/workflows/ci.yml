@@ -523,6 +523,10 @@ jobs:
     - name: Setup Ubuntu apt sources
       if: runner.os == 'Linux'
       run: |
+        #Bypass the broken regional mirror immediately
+        sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list
+        sudo apt-get update -qq
+        
         export ARCHITECHURE=$(uname -m)
         
         if [[ "$ARCHITECHURE" == "x86_64" ]]; then
